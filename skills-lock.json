@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "skills": {
+    "replatform": {
+      "source": "/home/vaati/Desktop/WIXAPPS/agegate/node_modules/@wix/agent-skills",
+      "sourceType": "local",
+      "computedHash": "94951fff481b1ba218560c962d790adf36377c9cda6d9c92781dab21f80ae54f"
+    },
+    "wix-app": {
+      "source": "/home/vaati/Desktop/WIXAPPS/agegate/node_modules/@wix/agent-skills",
+      "sourceType": "local",
+      "computedHash": "05da2117032891f3b36c9ed7ce5ffba9f43e3c488d117d92807bc5f401cd5eba"
+    },
+    "wix-auth": {
+      "source": "/home/vaati/Desktop/WIXAPPS/agegate/node_modules/@wix/agent-skills",
+      "sourceType": "local",
+      "computedHash": "bf7376e4c8c35712962a1a5b621adbcf8b7dc8bdbc0a1870e47992e317b6d213"
+    },
+    "wix-base44-connector": {
+      "source": "/home/vaati/Desktop/WIXAPPS/agegate/node_modules/@wix/agent-skills",
+      "sourceType": "local",
+      "computedHash": "788afc8ff32d8d4535092ea48c6d68b60d39a5efb5e38f968341168e96db258d"
+    },
+    "wix-design-system": {
+      "source": "/home/vaati/Desktop/WIXAPPS/agegate/node_modules/@wix/agent-skills",
+      "sourceType": "local",
+      "computedHash": "47da8b5791959362c730a630c9893473a7e7fa645bbe93b63b306df2ddccbbaf"
+    },
+    "wix-docs": {
+      "source": "/home/vaati/Desktop/WIXAPPS/agegate/node_modules/@wix/agent-skills",
+      "sourceType": "local",
+      "computedHash": "707412d644d9c0828d30e03649d4a44addeef244b9c2fee65f1f8d9184f53b96"
+    },
+    "wix-headless": {
+      "source": "/home/vaati/Desktop/WIXAPPS/agegate/node_modules/@wix/agent-skills",
+      "sourceType": "local",
+      "computedHash": "a85066da60ace75872e3a50280dd3528295e7dd62db8f5f387a99719334647ad"
+    },
+    "wix-headless-fast": {
+      "source": "/home/vaati/Desktop/WIXAPPS/agegate/node_modules/@wix/agent-skills",
+      "sourceType": "local",
+      "computedHash": "c9a716db9600743e6b14f3177cdb148a772c8085885ae2ff9cabc0b666fbd123"
+    },
+    "wix-manage": {
+      "source": "/home/vaati/Desktop/WIXAPPS/agegate/node_modules/@wix/agent-skills",
+      "sourceType": "local",
+      "computedHash": "148e6a8cbc557b761a46a2f766869a341af678bb478461f9874b4f963c643a69"
+    },
+    "wix-vibe-headless": {
+      "source": "/home/vaati/Desktop/WIXAPPS/agegate/node_modules/@wix/agent-skills",
+      "sourceType": "local",
+      "computedHash": "5075fa52afb6e4756086ccf49a5c244086553af77138aaae535114af65d25b03"
+    }
+  }
+}
