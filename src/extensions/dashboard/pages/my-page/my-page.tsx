@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FC } from 'react';
 import { dashboard } from '@wix/dashboard';
+import { embeddedScripts } from '@wix/app-management';
 import {
   Box,
   Button,
@@ -21,10 +22,10 @@ import {
 import '@wix/design-system/styles.global.css';
 import {
   DEFAULT_SETTINGS,
-  loadStoredSettings,
+  decodeConfig,
+  encodeConfig,
   isProTheme,
   MAX_VERIFICATION_DAYS,
-  saveSettings,
   type AgeGateSettings,
   type Theme,
   type VerificationMethod,
@@ -62,18 +63,19 @@ const DashboardPage: FC = () => {
 
   useEffect(() => {
     // The plan and the saved settings load independently, so a settings problem
-    // (for example a missing collection) can't hide the plan.
+    // can't hide the plan.
     const loadSettings = async () => {
       try {
-        const stored = await loadStoredSettings();
-        if (stored) {
+        const script = await embeddedScripts.getEmbeddedScript();
+        const encoded = script.parameters?.config;
+        if (encoded) {
+          const stored = decodeConfig(encoded);
           setSettings(stored);
           setSavedSettings(stored);
         }
       } catch (error) {
-        console.error('Failed to load age gate settings:', error);
-        const reason = error instanceof Error ? error.message : String(error);
-        dashboard.showToast({ message: `Could not load your settings: ${reason}`, type: 'error', timeout: 'none' });
+        // Nothing is saved until the first Save, so this can also just mean "no settings yet".
+        console.error('Could not load saved age gate settings:', error);
       }
     };
 
@@ -119,7 +121,11 @@ const DashboardPage: FC = () => {
 
     setSaving(true);
     try {
-      await saveSettings(toSave);
+      // Embedding the script (with its settings) is what puts the age gate on the site.
+      await embeddedScripts.embedScript({
+        parameters: { config: encodeConfig(toSave) },
+        disabled: !toSave.enabled,
+      });
       setSettings(toSave);
       setSavedSettings(toSave);
       dashboard.showToast({ message: 'Settings saved.', type: 'success' });
@@ -234,7 +240,7 @@ const DashboardPage: FC = () => {
       <Page maxWidth={1240}>
         <Page.Header
           title="Age Gate Settings"
-          subtitle="Site-wide defaults for every age verification popup. A setting changed in a widget's own panel overrides these."
+          subtitle="Set up the age verification popup shown to visitors across your whole site."
           actionsBar={
             <Box gap="SP2">
               {planKnown && !isPro && !loading && (
@@ -292,14 +298,14 @@ const DashboardPage: FC = () => {
                     <Layout gap="24px">
                       <Cell span={12}>
                         <FormField
-                          label="Enable for live site"
-                          infoContent="While off, the popup shows on every visit so you can test it. Turn on to remember visitors who verified."
+                          label="Show the age gate on your site"
+                          infoContent="Turn on, then click Save, to show the popup to every visitor. Turn off to hide it. To see it again after you've verified yourself, add ?age-gate-test to a page's address."
                           labelPlacement="right"
                           stretchContent={false}
                         >
                           <ToggleSwitch
-                            checked={settings.liveMode}
-                            onChange={() => update('liveMode', !settings.liveMode)}
+                            checked={settings.enabled}
+                            onChange={() => update('enabled', !settings.enabled)}
                           />
                         </FormField>
                       </Cell>

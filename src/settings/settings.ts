@@ -1,9 +1,3 @@
-import { items } from '@wix/data';
-import config from '../../wix.config.json';
-
-export const SETTINGS_COLLECTION_ID = `${config.namespace}/age-gate-settings`;
-export const SETTINGS_ITEM_ID = 'site-settings';
-
 export const THEMES = ['minimal', 'midnight', 'bold', 'noir', 'amber'] as const;
 export type Theme = (typeof THEMES)[number];
 
@@ -32,7 +26,8 @@ function clampDays(days: number): number {
 }
 
 export interface AgeGateSettings {
-  liveMode: boolean;
+  // Whether the age gate is shown on the site at all.
+  enabled: boolean;
   minimumAge: number;
   verificationMethod: VerificationMethod;
   verificationDays: number;
@@ -58,7 +53,7 @@ export interface AgeGateSettings {
 }
 
 export const DEFAULT_SETTINGS: AgeGateSettings = {
-  liveMode: false,
+  enabled: false,
   minimumAge: 21,
   verificationMethod: 'button',
   verificationDays: 30,
@@ -103,7 +98,7 @@ export function normalizeSettings(row: Record<string, unknown> | null | undefine
   const d = DEFAULT_SETTINGS;
   const r = row ?? {};
   return {
-    liveMode: typeof r.liveMode === 'boolean' ? r.liveMode : d.liveMode,
+    enabled: typeof r.enabled === 'boolean' ? r.enabled : d.enabled,
     minimumAge: num(r.minimumAge, d.minimumAge),
     verificationMethod: pick(VERIFICATION_METHODS, r.verificationMethod, d.verificationMethod),
     verificationDays: parseVerificationDays(r.verificationDays, d.verificationDays),
@@ -128,16 +123,28 @@ export function normalizeSettings(row: Record<string, unknown> | null | undefine
   };
 }
 
-// Returns the saved settings, or null when the dashboard has never saved any.
-export async function loadStoredSettings(): Promise<AgeGateSettings | null> {
-  const row = await items.get(SETTINGS_COLLECTION_ID, SETTINGS_ITEM_ID);
-  return row ? normalizeSettings(row) : null;
+// The embedded script receives all settings as one string. Base64url keeps the value
+// safe inside an HTML attribute whatever escaping Wix applies, and a single parameter
+// means adding a setting later doesn't change the app's dynamic parameters.
+export function encodeConfig(settings: AgeGateSettings): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(settings));
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-export async function saveSettings(settings: AgeGateSettings): Promise<void> {
-  await items.save(SETTINGS_COLLECTION_ID, {
-    _id: SETTINGS_ITEM_ID,
-    title: 'Site-wide settings',
-    ...settings,
-  });
+// Falls back to the defaults if the value is missing or damaged.
+export function decodeConfig(value: string | null | undefined): AgeGateSettings {
+  if (!value) return DEFAULT_SETTINGS;
+  try {
+    const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+    const binary = atob(base64 + '='.repeat((4 - (base64.length % 4)) % 4));
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return normalizeSettings(JSON.parse(new TextDecoder().decode(bytes)));
+  } catch (error) {
+    console.error('Could not read the age gate settings:', error);
+    return DEFAULT_SETTINGS;
+  }
 }

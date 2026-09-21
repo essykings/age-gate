@@ -1,36 +1,16 @@
-/* :root {
-  --background-color: #242A35;
-  --text-color: #fcfdfd;
-  --secondary-text-color: #c9c9c9;
-  --code-color: #d7d7d7;
+// Popup styles. Rendered inside a shadow root, so these can't clash with the site's CSS.
+export const POPUP_CSS = `
+:host {
+  all: initial;
 }
 
-.root {
-  width: 100%;
-  height: 100%;
-  background-color: var(--background-color);
-  color: var(--text-color);
+*, *::before, *::after {
   box-sizing: border-box;
-  padding: 3rem 1rem;
-  font-size: 14px;
 }
 
-.root h2 {
-  font-size: 1.5rem;
-  margin-bottom: 5px;
+button, input {
+  font-family: inherit;
 }
-
-.root p {
-  color: var(--secondary-text-color);
-}
-
-.root code {
-  color: var(--code-color);
-  font-size: 0.8rem;
-  font-weight: bolder;
-}
- */
-/* age-verify.module.css */
 
 .container {
   max-width: 420px;
@@ -77,19 +57,6 @@
   cursor: pointer;
   transition: opacity 0.15s ease;
 }
-/* .primaryButton {
-  flex: 1;
-  min-width: 140px;
-  padding: 12px 24px;
-  background: #111111;
-  color: #ffffff;
-  border: none;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: opacity 0.15s ease;
-} */
 
 .primaryButton:hover {
   opacity: 0.85;
@@ -113,7 +80,6 @@
   opacity: 0.7;
 }
 
-
 .overlay {
   position: fixed;
   inset: 0;
@@ -121,7 +87,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 9999;
+  z-index: 2147483647;
 }
 @media (max-width: 480px) {
   .container {
@@ -132,13 +98,6 @@
     flex-direction: column;
   }
 }
-
-/* ============================================================
-   Themes
-   The widget adds one of these classes onto .container based on
-   the "theme" attribute. Minimal (styled above) has no extra
-   class — these two restyle on top of it.
-   ============================================================ */
 
 .theme-midnight {
   background: var(--popup-background, #1a1a1f);
@@ -191,7 +150,6 @@
   border-width: 2px;
 }
 
-/* Noir: dark, uppercase, with a wide soft-coloured button. */
 .theme-noir {
   background: var(--popup-background, #0a0a0a);
   border: 1px solid #1f1f1f;
@@ -235,7 +193,6 @@
   color: #6f6f75;
 }
 
-/* Amber: white card with stacked, full-width yellow buttons. */
 .theme-amber {
   background: var(--popup-background, #ffffff);
   box-shadow: 0 2px 24px rgba(0, 0, 0, 0.08);
@@ -271,10 +228,6 @@
   border: 2px solid var(--secondary-border, #ffd21f);
 }
 
-/* ============================================================
-   Logo and footer text (all themes)
-   ============================================================ */
-
 .logo {
   display: block;
   max-width: 160px;
@@ -289,10 +242,6 @@
   color: #888888;
   margin: 20px 0 0 0;
 }
-
-/* ============================================================
-   Date of birth verification
-   ============================================================ */
 
 .dobField {
   display: flex;
@@ -329,7 +278,6 @@
   margin: -10px 0 16px 0;
   text-align: left;
 }
-/* Three-box date of birth field (DD / MM / YYYY), used by the Noir theme. */
 .dobSegments {
   display: flex;
   align-items: center;
@@ -363,3 +311,4 @@
   outline: none;
   border-color: var(--accent-color, #d9c5b8);
 }
+`;
