@@ -11,25 +11,11 @@ export async function GET() {
 
     // Only the fields the dashboard and editor panel need; not the site or owner details.
     const { instance } = instanceResponse;
-    // TEMPORARY: raw plan fields (no site or owner details) to debug the plan check.
-    console.info('[plan-debug]', JSON.stringify({
-      isFree: instance?.isFree,
-      hasBilling: Boolean(instance?.billing),
-      billing: instance?.billing,
-      freeTrialAvailable: instance?.freeTrialAvailable,
-      availablePlans: instance?.availablePlans,
-      instanceId: instance?.instanceId,
-    }));
     const body = {
       instance: {
         instanceId: instance?.instanceId,
         isFree: instance?.isFree,
-        billing: {
-          packageName: instance?.billing?.packageName,
-          billingCycle: instance?.billing?.billingCycle,
-          freeTrialStatus: instance?.billing?.freeTrialInfo?.status,
-        },
-        freeTrialAvailable: instance?.freeTrialAvailable,
+        billing: { packageName: instance?.billing?.packageName },
       },
     };
 

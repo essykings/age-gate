@@ -13,8 +13,6 @@ export interface PlanInfo {
   isPro: boolean;
   packageName: string | null;
   instanceId: string | null;
-  // What Wix reported, for showing to the site owner when the plan looks wrong.
-  details: string;
 }
 
 // Only call this from the dashboard or editor panel, which share the app's origin.
@@ -39,18 +37,11 @@ export async function fetchPlanInfo(): Promise<PlanInfo> {
       isPro: !isFree && packageName?.toLowerCase() === PRO_PACKAGE_NAME,
       packageName,
       instanceId: instance.instanceId,
-      details: [
-        `instance: ${String(instance.instanceId).slice(0, 8)}`,
-        `isFree from Wix: ${instance.isFree ?? 'missing'}`,
-        `plan: ${packageName ?? 'none'}`,
-        `billing: ${instance.billing?.billingCycle ?? 'none'}`,
-        `trial: ${instance.billing?.freeTrialStatus ?? 'none'}`,
-      ].join(' · '),
     };
   } catch (error) {
     console.error('Could not determine Wix plan:', error);
     // Don't grant paid features if the plan can't be confirmed.
-    return { status: 'unknown', isPaid: false, isPro: false, packageName: null, instanceId: null, details: 'plan check failed' };
+    return { status: 'unknown', isPaid: false, isPro: false, packageName: null, instanceId: null };
   }
 }
 

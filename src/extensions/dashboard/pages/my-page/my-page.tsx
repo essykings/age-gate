@@ -267,8 +267,6 @@ const DashboardPage: FC = () => {
                     onAction={refreshPlan}
                   >
                     We couldn't check your plan, so Pro options stay locked for now.
-                    <br />
-                    <Text size="tiny" secondary>Wix reports — {plan?.details}</Text>
                   </SectionHelper>
                 ) : !isPro ? (
                   <SectionHelper
@@ -279,12 +277,10 @@ const DashboardPage: FC = () => {
                     secondaryActionProps={{ label: checkingPlan ? 'Checking…' : "I've upgraded — refresh", onClick: refreshPlan }}
                   >
                     Date of birth verification, premium themes and a custom logo are Pro features. {plan?.isPaid ? 'Upgrade to the Pro plan to turn them on.' : 'Upgrade your plan to turn them on.'}
-                    <br />
-                    <Text size="tiny" secondary>Wix reports — {plan?.details}</Text>
                   </SectionHelper>
                 ) : (
                   <Text size="small" secondary>
-                    Plan: {plan?.packageName ?? 'Pro'} · {plan?.details}
+                    Plan: {plan?.packageName ?? 'Pro'}
                   </Text>
                 )}
               </Cell>
