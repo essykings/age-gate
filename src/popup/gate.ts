@@ -1,4 +1,4 @@
-import { matchesTargetPaths, type AgeGateSettings } from '../settings/settings';
+import { matchesTargetPaths, normalizeRedirectUrl, type AgeGateSettings } from '../settings/settings';
 import { buildPopup, buildRestrictedHtml, isSegmentedDobTheme } from './render';
 import { POPUP_CSS } from './styles';
 
@@ -51,10 +51,12 @@ function setVerified(days: number): void {
 
 // Only http(s) redirects, so a saved setting can't run script.
 function safeRedirect(url: string): string {
+  // Also fixes values saved before the dashboard added https:// itself (e.g. "google.com").
+  const normalized = normalizeRedirectUrl(url);
   // An empty value means "no redirect"; it must not resolve to the current page.
-  if (!url.trim()) return '';
+  if (!normalized) return '';
   try {
-    const parsed = new URL(url, window.location.href);
+    const parsed = new URL(normalized, window.location.href);
     return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.href : '';
   } catch {
     return '';

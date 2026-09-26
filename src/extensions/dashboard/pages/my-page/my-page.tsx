@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type CSSProperties, type FC } from 'r
 import { dashboard } from '@wix/dashboard';
 import { embeddedScripts } from '@wix/app-management';
 import {
+  Badge,
   Box,
   Button,
   Card,
@@ -28,7 +29,9 @@ import {
   encodeConfig,
   isProTheme,
   MAX_VERIFICATION_DAYS,
+  normalizeRedirectUrl,
   PAGE_TARGETING_MODES,
+  redirectUrlIssue,
   resolveLocalizedSettings,
   type AgeGateSettings,
   type PageTargetingMode,
@@ -100,7 +103,11 @@ const DashboardPage: FC = () => {
   // '' previews the default (main-language) text; otherwise a saved translation's code.
   const [previewLanguage, setPreviewLanguage] = useState('');
 
+  // Edits that haven't been saved yet (drives the "leave without saving?" warning).
   const dirty = JSON.stringify(settings) !== JSON.stringify(savedSettings);
+  // A site that has never been saved has nothing on it yet, even though the defaults on
+  // screen already look "on" — so Save must work without the owner changing something first.
+  const canSave = dirty || gateStatus.kind === 'notSetUp';
 
   useEffect(() => {
     // The plan and the saved settings load independently, so a settings problem
@@ -187,6 +194,8 @@ const DashboardPage: FC = () => {
 
   const isPro = plan?.isPro ?? false;
   const planKnown = plan !== null && plan.status !== 'unknown';
+  // Shown in the header for Pro sites, e.g. "pro" -> "Pro".
+  const planName = plan?.packageName ? plan.packageName.charAt(0).toUpperCase() + plan.packageName.slice(1) : 'Pro';
 
   const handleUpgrade = () => {
     window.open(getUpgradeUrl(plan?.instanceId ?? null), '_blank', 'noopener,noreferrer');
@@ -199,14 +208,28 @@ const DashboardPage: FC = () => {
     setCheckingPlan(false);
   };
 
-  const handleSave = async () => {
+  // `overrides` lets a one-click action (like "Turn off testing mode") save with a change
+  // applied, without waiting for the owner to edit the form and press Save.
+  const handleSave = async (overrides: Partial<AgeGateSettings> = {}) => {
+    const current: AgeGateSettings = {
+      ...settings,
+      ...overrides,
+      // Fix up what was typed (e.g. "google.com" -> "https://google.com") before checking it.
+      redirectUrl: normalizeRedirectUrl(overrides.redirectUrl ?? settings.redirectUrl),
+    };
+    const redirectProblem = redirectUrlIssue(current.redirectUrl);
+    if (redirectProblem) {
+      dashboard.showToast({ message: `Fix the Redirect URL before saving. ${redirectProblem}`, type: 'error' });
+      return;
+    }
+
     // Free plans can't keep Pro options, even if they were saved before a downgrade.
     const toSave: AgeGateSettings = isPro
-      ? settings
+      ? current
       : {
-          ...settings,
-          verificationMethod: settings.verificationMethod === 'dob' ? 'button' : settings.verificationMethod,
-          theme: isProTheme(settings.theme) ? 'minimal' : settings.theme,
+          ...current,
+          verificationMethod: current.verificationMethod === 'dob' ? 'button' : current.verificationMethod,
+          theme: isProTheme(current.theme) ? 'minimal' : current.theme,
           pageTargeting: 'all',
           targetPaths: '',
           translations: [],
@@ -341,6 +364,9 @@ const DashboardPage: FC = () => {
     </FormField>
   );
 
+  // Shown under the Redirect URL field while it holds something that wouldn't work.
+  const redirectProblem = redirectUrlIssue(settings.redirectUrl);
+
   const issues = contrastIssues({
     theme: settings.theme,
     popupBackground: settings.popupBackgroundColor,
@@ -368,13 +394,19 @@ const DashboardPage: FC = () => {
           title="Age Gate Settings"
           subtitle="Set up the age verification popup shown to visitors across your whole site."
           actionsBar={
-            <Box gap="SP2">
+            <Box gap="SP2" verticalAlign="middle">
               {planKnown && !isPro && !loading && (
                 <Button skin="premium" onClick={handleUpgrade}>
                   Upgrade
                 </Button>
               )}
-              <Button onClick={handleSave} disabled={!dirty || loading}>
+              {planKnown && isPro && !loading && (
+                <Badge skin="premium" type="outlined" size="medium">
+                  {/* Badges uppercase their text by default; keep the wording as written. */}
+                  <span style={{ textTransform: 'none' }}>👑 Current plan: {planName}</span>
+                </Badge>
+              )}
+              <Button onClick={() => handleSave()} disabled={!canSave || loading || saving}>
                 {saving ? 'Saving…' : 'Save'}
               </Button>
             </Box>
@@ -393,7 +425,7 @@ const DashboardPage: FC = () => {
                 <Box direction="vertical" gap="SP2">
                 {gateStatus.kind === 'live' && (
                   <SectionHelper appearance="success" fullWidth title="Age gate is switched on">
-                    Your settings are saved. Visitors see the age gate once you publish your site. It doesn't appear in the editor or in Preview.
+                    Your settings are saved. Open your published site to see the age gate.
                   </SectionHelper>
                 )}
                 {gateStatus.kind === 'off' && (
@@ -403,7 +435,22 @@ const DashboardPage: FC = () => {
                 )}
                 {gateStatus.kind === 'notSetUp' && (
                   <SectionHelper appearance="warning" fullWidth title="Not on your site yet">
-                    Turn on "Show the age gate on your site" and click Save to put it on your site.
+                    {settings.enabled
+                      ? 'Your settings haven\'t been saved yet. Click Save to put the age gate on your site.'
+                      : 'Turn on "Show the age gate on your site", then click Save to put it on your site.'}
+                  </SectionHelper>
+                )}
+                {savedSettings.previewMode && savedSettings.enabled && gateStatus.kind !== 'notSetUp' && (
+                  <SectionHelper
+                    appearance="warning"
+                    fullWidth
+                    title="Testing mode is on"
+                    actionText={saving ? 'Saving…' : 'Turn off and save'}
+                    actionDisabled={saving}
+                    onAction={() => handleSave({ previewMode: false })}
+                  >
+                    Every visitor sees the age gate on every page, even after answering, with an "Always shown during
+                    testing" label. Turn this off once you've finished testing.
                   </SectionHelper>
                 )}
                 {gateStatus.kind === 'error' && (
@@ -411,7 +458,7 @@ const DashboardPage: FC = () => {
                     {gateStatus.message}
                   </SectionHelper>
                 )}
-                {plan?.status === 'unknown' ? (
+                {plan?.status === 'unknown' && (
                   <SectionHelper
                     appearance="warning"
                     fullWidth
@@ -421,20 +468,6 @@ const DashboardPage: FC = () => {
                   >
                     We couldn't check your plan, so Pro options stay locked for now.
                   </SectionHelper>
-                ) : !isPro ? (
-                  <SectionHelper
-                    appearance="premium"
-                    fullWidth
-                    actionText="Upgrade"
-                    onAction={handleUpgrade}
-                    secondaryActionProps={{ label: checkingPlan ? 'Checking…' : "I've upgraded — refresh", onClick: refreshPlan }}
-                  >
-                    Date of birth verification, premium themes, page targeting, translations, custom CSS, and custom branding (logo, colors, button styling) are Pro features. {plan?.isPaid ? 'Upgrade to the Pro plan to turn them on.' : 'Upgrade your plan to turn them on.'}
-                  </SectionHelper>
-                ) : (
-                  <Text size="small" secondary>
-                    Plan: {plan?.packageName ?? 'Pro'}
-                  </Text>
                 )}
                 </Box>
               </Cell>
@@ -494,12 +527,25 @@ const DashboardPage: FC = () => {
                         )}
                       </Cell>
                       <Cell span={12}>
-                        {textField(
-                          'Redirect URL',
-                          'redirectUrl',
-                          'https://example.com',
-                          "Optional. Visitors who don't meet the age requirement are sent here instead of seeing the Access Restricted message.",
-                        )}
+                        <FormField
+                          label="Redirect URL"
+                          infoContent="Optional. Visitors who don't meet the age requirement are sent here instead of seeing the Access Restricted message."
+                          status={redirectProblem ? 'error' : undefined}
+                          statusMessage={redirectProblem ?? undefined}
+                        >
+                          <Input
+                            value={settings.redirectUrl}
+                            onChange={(event) => update('redirectUrl', event.target.value)}
+                            // Tidies up as soon as they leave the field, e.g. "google.com" -> "https://google.com".
+                            // Anything that isn't a usable address is left as typed, with the error showing.
+                            onBlur={() => {
+                              if (!redirectProblem) update('redirectUrl', normalizeRedirectUrl(settings.redirectUrl));
+                            }}
+                            placeholder="https://example.com"
+                            status={redirectProblem ? 'error' : undefined}
+                            aria-label="Redirect URL"
+                          />
+                        </FormField>
                       </Cell>
                     </Layout>
                   </Card.Content>

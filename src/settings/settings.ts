@@ -32,6 +32,37 @@ export function matchesTargetPaths(pathname: string, targetPaths: string): boole
   });
 }
 
+// Turns what an owner typed into a usable redirect: "google.com" becomes
+// "https://google.com" (left as-is it would resolve to a broken page on their own site).
+// Paths like "/sorry" stay as they are, and anything with a scheme is left for validation.
+export function normalizeRedirectUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return trimmed;
+  if (/^(javascript|data|vbscript|mailto|tel):/i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('//')) return `https:${trimmed}`;
+  if (trimmed.startsWith('/')) return trimmed;
+  return `https://${trimmed}`;
+}
+
+// A plain-language problem with a redirect URL, or null if it's fine (or empty).
+export function redirectUrlIssue(value: string): string | null {
+  const url = normalizeRedirectUrl(value);
+  if (!url || url.startsWith('/')) return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return 'Use a web address that starts with https://, for example https://example.com.';
+    }
+    if (!parsed.hostname.includes('.')) {
+      return "That doesn't look like a full web address. Try something like https://example.com.";
+    }
+    return null;
+  } catch {
+    return 'Enter a full web address, for example https://example.com.';
+  }
+}
+
 // Days a visitor stays verified. 0 means only for the current browser session.
 export const MAX_VERIFICATION_DAYS = 3650;
 
