@@ -1,4 +1,4 @@
-import { matchesTargetPaths, normalizeRedirectUrl, type AgeGateSettings } from '../settings/settings';
+import { hasTargetPaths, matchesTargetPaths, normalizeRedirectUrl, type AgeGateSettings } from '../settings/settings';
 import { buildPopup, buildRestrictedHtml, isSegmentedDobTheme } from './render';
 import { POPUP_CSS } from './styles';
 
@@ -89,7 +89,13 @@ export interface GateOptions {
 // so the site's styles can't break the popup.
 export function mountAgeGate(settings: AgeGateSettings, options: GateOptions = {}): void {
   if (!settings.enabled) return;
-  if (settings.pageTargeting === 'specific' && !matchesTargetPaths(window.location.pathname, settings.targetPaths)) {
+  // "Specific pages" with no pages entered yet falls back to the whole site: an age gate
+  // that quietly shows nowhere is worse than one that shows everywhere.
+  if (
+    settings.pageTargeting === 'specific' &&
+    hasTargetPaths(settings.targetPaths) &&
+    !matchesTargetPaths(window.location.pathname, settings.targetPaths)
+  ) {
     return;
   }
   const bypassStored = options.ignoreStoredVerification || settings.previewMode;

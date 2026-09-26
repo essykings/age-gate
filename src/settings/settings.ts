@@ -19,11 +19,17 @@ function normalizePath(path: string): string {
   return trimmed.replace(/\/+$/, '');
 }
 
+function targetPatterns(targetPaths: string): string[] {
+  return targetPaths.split('\n').map((line) => line.trim()).filter(Boolean);
+}
+
+// Whether at least one page has actually been entered.
+export const hasTargetPaths = (targetPaths: string): boolean => targetPatterns(targetPaths).length > 0;
+
 // True if the given pathname is covered by any of the target patterns.
 export function matchesTargetPaths(pathname: string, targetPaths: string): boolean {
   const current = normalizePath(pathname);
-  const patterns = targetPaths.split('\n').map((line) => line.trim()).filter(Boolean);
-  return patterns.some((raw) => {
+  return targetPatterns(targetPaths).some((raw) => {
     if (raw.endsWith('/*')) {
       const prefix = normalizePath(raw.slice(0, -2));
       return current === prefix || current.startsWith(`${prefix === '/' ? '' : prefix}/`);
@@ -62,6 +68,9 @@ export function redirectUrlIssue(value: string): string | null {
     return 'Enter a full web address, for example https://example.com.';
   }
 }
+
+// "pt-BR", "pt_br" and "PT" all become "pt": matching is on the primary language only.
+export const toLanguageCode = (value: string): string => value.trim().toLowerCase().split(/[-_]/)[0]!.slice(0, 3);
 
 // Days a visitor stays verified. 0 means only for the current browser session.
 export const MAX_VERIFICATION_DAYS = 3650;
@@ -124,7 +133,7 @@ export interface AgeGateSettings {
 }
 
 export interface Translation {
-  // 2-letter language code, matching Wix Multilingual's visitor-facing language codes.
+  // Primary language code, e.g. "fr" (regional tags like "fr-CA" are reduced to it).
   code: string;
   headingText: string;
   bodyText: string;
@@ -195,7 +204,7 @@ function normalizeTranslations(value: unknown): Translation[] {
   return value
     .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
     .map((item) => ({
-      code: text(item.code, '').trim().toLowerCase().slice(0, 5),
+      code: toLanguageCode(text(item.code, '')),
       headingText: text(item.headingText, ''),
       bodyText: text(item.bodyText, ''),
       yesButtonText: text(item.yesButtonText, ''),
@@ -249,7 +258,7 @@ export function resolveLocalizedSettings(
   languageCode: string | null | undefined,
 ): AgeGateSettings {
   // "en-US" and similar full locale tags match on their primary subtag, "en".
-  const code = languageCode?.trim().toLowerCase().split('-')[0];
+  const code = languageCode ? toLanguageCode(languageCode) : '';
   if (!code) return settings;
   const translation = settings.translations.find((t) => t.code === code);
   if (!translation) return settings;

@@ -31,8 +31,10 @@ import {
   MAX_VERIFICATION_DAYS,
   normalizeRedirectUrl,
   PAGE_TARGETING_MODES,
+  hasTargetPaths,
   redirectUrlIssue,
   resolveLocalizedSettings,
+  toLanguageCode,
   type AgeGateSettings,
   type PageTargetingMode,
   type Theme,
@@ -223,8 +225,9 @@ const DashboardPage: FC = () => {
       return;
     }
 
-    // Free plans can't keep Pro options, even if they were saved before a downgrade.
-    const toSave: AgeGateSettings = isPro
+    // Free plans can't keep Pro options, even if they were saved before a downgrade. If the
+    // plan couldn't be determined we keep everything as-is rather than wipe a Pro owner's setup.
+    const toSave: AgeGateSettings = isPro || !planKnown
       ? current
       : {
           ...current,
@@ -713,6 +716,11 @@ const DashboardPage: FC = () => {
                                   </TextButton>
                                 </Box>
                               ))}
+                              {isPro && !hasTargetPaths(settings.targetPaths) && (
+                                <Text size="small" skin="error">
+                                  No pages added yet — the age gate will show on every page until you add one.
+                                </Text>
+                              )}
                               <Box>
                                 <Button size="small" priority="secondary" disabled={!isPro} onClick={addTargetPath}>
                                   + Add page
@@ -742,11 +750,11 @@ const DashboardPage: FC = () => {
                               <Box style={{ maxWidth: 120 }}>
                                 <FormField
                                   label="Language code"
-                                  infoContent='2-letter code, e.g. "es" for Spanish. Enter any code you like — it just needs to match what visitors will see.'
+                                  infoContent='2-letter language code, e.g. "es" for Spanish or "pt" for Portuguese (covers regional versions such as pt-BR).'
                                 >
                                   <Input
                                     value={translation.code}
-                                    onChange={(event) => updateTranslation(index, 'code', event.target.value)}
+                                    onChange={(event) => updateTranslation(index, 'code', toLanguageCode(event.target.value))}
                                     placeholder="es"
                                     disabled={!isPro}
                                     aria-label="Language code"
