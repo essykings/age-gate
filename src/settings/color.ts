@@ -20,7 +20,7 @@ export interface PopupColorInputs {
 }
 
 // Colours each theme uses when nothing is set (mirrors age-verify.module.css).
-interface ThemeColors {
+export interface ThemeColors {
   background: string;
   heading: string;
   body: string;
@@ -31,13 +31,14 @@ interface ThemeColors {
 
 const THEME_DEFAULTS: Record<string, ThemeColors> = {
   minimal: { background: '#ffffff', heading: '#111111', body: '#666666', secondaryText: '#666666', primaryBackground: '#111111', primaryText: '#ffffff' },
-  midnight: { background: '#1a1a1f', heading: '#f4f3f1', body: '#9d9da3', secondaryText: '#9d9da3', primaryBackground: '#111111', primaryText: '#ffffff' },
-  bold: { background: '#ffffff', heading: '#111111', body: '#666666', secondaryText: '#666666', primaryBackground: '#111111', primaryText: '#ffffff' },
   amber: { background: '#ffffff', heading: '#1a1a1a', body: '#444444', secondaryText: '#1a1a1a', primaryBackground: '#ffc400', primaryText: '#1a1a1a' },
   noir: { background: '#0a0a0a', heading: '#ffffff', body: '#8a8a8f', secondaryText: '#8a8a8f', primaryBackground: '#d9c5b8', primaryText: '#2a211d' },
+  blossom: { background: '#fdf1ee', heading: '#2b1620', body: '#7a6b70', secondaryText: '#7a6b70', primaryBackground: '#8c3b52', primaryText: '#ffffff' },
+  garden: { background: '#1f3327', heading: '#f4f1e8', body: '#a9b8a0', secondaryText: '#f4f1e8', primaryBackground: '#cfe3a4', primaryText: '#1f3327' },
+  sunset: { background: '#fdf6ee', heading: '#241b16', body: '#6b5b52', secondaryText: '#d9773f', primaryBackground: '#d9773f', primaryText: '#ffffff' },
 };
 
-function themeDefaults(theme: string) {
+export function themeDefaults(theme: string): ThemeColors {
   return THEME_DEFAULTS[theme] ?? THEME_DEFAULTS.minimal!;
 }
 

@@ -26,11 +26,19 @@ export const PopupPreview: FC<PopupPreviewProps> = ({ settings }) => {
     root.innerHTML = `
       <style>
         ${POPUP_CSS}
-        .preview-backdrop { background: rgba(0, 0, 0, 0.5); border-radius: 8px; padding: 16px; pointer-events: none; }
+        .preview-backdrop { background: #ffffff; border-radius: 8px; padding: 16px; pointer-events: none; }
         .preview-backdrop .container { width: 100%; padding-left: 20px; padding-right: 20px; }
       </style>
       <div class="preview-backdrop" style="${vars}" aria-hidden="true">${popup.html}</div>
     `;
+
+    // Set as textContent, not interpolated into the HTML above, so custom CSS can never
+    // break out of its <style> tag no matter what characters it contains.
+    if (settings.customCss) {
+      const customStyle = document.createElement('style');
+      customStyle.textContent = settings.customCss;
+      root.append(customStyle);
+    }
   }, [settings]);
 
   return <div ref={hostRef} />;

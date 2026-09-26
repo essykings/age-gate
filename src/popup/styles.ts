@@ -99,57 +99,6 @@ button, input {
   }
 }
 
-.theme-midnight {
-  background: var(--popup-background, #1a1a1f);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 20px 60px rgba(0, 0, 0, 0.55);
-}
-
-.theme-midnight .heading {
-  color: var(--heading-color, #f4f3f1);
-}
-
-.theme-midnight .body {
-  color: var(--body-color, #9d9da3);
-}
-
-.theme-midnight .secondaryButton {
-  color: var(--secondary-text, #9d9da3);
-  border-color: var(--secondary-border, rgba(255, 255, 255, 0.16));
-}
-
-.theme-midnight .dobLabel {
-  color: #c7c7cc;
-}
-
-.theme-midnight .dobInput {
-  background: #232329;
-  border-color: rgba(255, 255, 255, 0.16);
-  color: #f4f3f1;
-}
-
-.theme-bold {
-  background: var(--popup-background, #ffffff);
-  border-radius: 0;
-  box-shadow: none;
-  border: 3px solid var(--accent-color, #111111);
-  padding: 40px 32px;
-}
-
-.theme-bold .heading {
-  font-weight: 800;
-  letter-spacing: -0.02em;
-}
-
-.theme-bold .primaryButton,
-.theme-bold .secondaryButton,
-.theme-bold .dobInput {
-  border-radius: var(--button-radius, 0);
-}
-
-.theme-bold .secondaryButton {
-  border-width: 2px;
-}
-
 .theme-noir {
   background: var(--popup-background, #0a0a0a);
   border: 1px solid #1f1f1f;
@@ -228,6 +177,136 @@ button, input {
   border: 2px solid var(--secondary-border, #ffd21f);
 }
 
+.theme-blossom {
+  background: var(--popup-background, #fdf1ee);
+  border-radius: 24px;
+  box-shadow: 0 8px 30px rgba(140, 59, 82, 0.18);
+}
+
+.theme-blossom .heading {
+  font-weight: 700;
+  color: var(--heading-color, #2b1620);
+}
+
+.theme-blossom .body {
+  color: var(--body-color, #7a6b70);
+}
+
+.theme-blossom .primaryButton {
+  background: var(--accent-color, #8c3b52);
+  color: var(--primary-text, #ffffff);
+  width: 100%;
+  padding: 16px 24px;
+  border-radius: var(--button-radius, 999px);
+}
+
+.theme-blossom .dobLabel {
+  display: none;
+}
+
+.theme-blossom .dobSegment {
+  color: #2b1620;
+  background: #ffffff;
+  border: 1px solid rgba(140, 59, 82, 0.25);
+}
+
+.theme-blossom .dobSegment::placeholder {
+  color: #c8b3ba;
+}
+
+.theme-blossom .dobSegment:focus {
+  border-color: var(--accent-color, #8c3b52);
+}
+
+.theme-garden {
+  background: var(--popup-background, #1f3327);
+  border-radius: 48px 48px 24px 24px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  padding: 48px 32px 36px;
+}
+
+.theme-garden .heading {
+  font-weight: 700;
+  color: var(--heading-color, #f4f1e8);
+}
+
+.theme-garden .body {
+  color: var(--body-color, #a9b8a0);
+}
+
+.theme-garden .buttonRow {
+  flex-direction: column;
+}
+
+.theme-garden .primaryButton,
+.theme-garden .secondaryButton {
+  width: 100%;
+  padding: 16px 24px;
+  border-radius: var(--button-radius, 999px);
+}
+
+.theme-garden .primaryButton {
+  background: var(--accent-color, #cfe3a4);
+  color: var(--primary-text, #1f3327);
+}
+
+.theme-garden .primaryButton::before {
+  content: '✓ ';
+}
+
+.theme-garden .secondaryButton {
+  color: var(--secondary-text, #f4f1e8);
+  border: 1px solid var(--secondary-border, rgba(244, 241, 232, 0.3));
+}
+
+.theme-garden .secondaryButton::before {
+  content: '✕ ';
+}
+
+.theme-sunset {
+  background: var(--popup-background, #fdf6ee);
+  border-radius: 20px;
+  box-shadow: 12px 12px 0 0 #f6e2cf, 0 2px 24px rgba(0, 0, 0, 0.08);
+}
+
+.theme-sunset .heading {
+  font-weight: 700;
+  color: var(--heading-color, #241b16);
+}
+
+.theme-sunset .body {
+  color: var(--body-color, #6b5b52);
+}
+
+.theme-sunset .buttonRow {
+  flex-direction: column;
+}
+
+.theme-sunset .primaryButton,
+.theme-sunset .secondaryButton {
+  width: 100%;
+  padding: 16px 24px;
+  border-radius: var(--button-radius, 999px);
+}
+
+.theme-sunset .primaryButton {
+  background: var(--accent-color, #d9773f);
+  color: var(--primary-text, #ffffff);
+}
+
+.theme-sunset .primaryButton::before {
+  content: '✓ ';
+}
+
+.theme-sunset .secondaryButton {
+  color: var(--secondary-text, #d9773f);
+  border: 2px solid var(--secondary-border, #d9773f);
+}
+
+.theme-sunset .secondaryButton::before {
+  content: '✕ ';
+}
+
 .logo {
   display: block;
   max-width: 160px;
@@ -237,10 +316,23 @@ button, input {
 }
 
 .footer {
-  font-size: 12px;
+  font-size: var(--footer-font-size, 12px);
   line-height: 1.5;
   color: #888888;
   margin: 20px 0 0 0;
+}
+
+.previewNote {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #92650a;
+  background: #fdf0d5;
+  border-radius: 999px;
+  padding: 4px 12px;
+  margin: 0 0 16px 0;
 }
 
 .dobField {

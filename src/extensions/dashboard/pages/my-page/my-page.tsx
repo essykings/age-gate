@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FC } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties, type FC } from 'react';
 import { dashboard } from '@wix/dashboard';
 import { embeddedScripts } from '@wix/app-management';
 import {
@@ -9,6 +9,7 @@ import {
   Dropdown,
   FormField,
   Input,
+  InputArea,
   Layout,
   Loader,
   NumberInput,
@@ -23,11 +24,16 @@ import '@wix/design-system/styles.global.css';
 import {
   DEFAULT_SETTINGS,
   decodeConfig,
+  EMPTY_TRANSLATION,
   encodeConfig,
   isProTheme,
   MAX_VERIFICATION_DAYS,
+  PAGE_TARGETING_MODES,
+  resolveLocalizedSettings,
   type AgeGateSettings,
+  type PageTargetingMode,
   type Theme,
+  type Translation,
   type VerificationMethod,
 } from '../../../../settings/settings';
 import { PopupPreview } from './popup-preview';
@@ -36,10 +42,21 @@ import { fetchPlanInfo, getUpgradeUrl, type PlanInfo } from '../../../../setting
 
 const THEME_LABELS: Record<Theme, string> = {
   minimal: 'Minimal (light)',
-  midnight: 'Midnight (dark)',
-  bold: 'Bold (outlined)',
   noir: 'Noir (dark, uppercase)',
   amber: 'Amber (yellow buttons)',
+  blossom: 'Blossom (soft pink)',
+  garden: 'Garden (dark green)',
+  sunset: 'Sunset (warm orange)',
+};
+
+// Real screenshots of each theme, hosted on Cloudinary.
+const THEME_PREVIEW_IMAGES: Record<Theme, string> = {
+  minimal: 'https://res.cloudinary.com/dgfqcinz9/image/upload/v1790318743/0c894479-0765-4f63-9056-d74393e384f2.png',
+  noir: 'https://res.cloudinary.com/dgfqcinz9/image/upload/v1790317455/bold_ewrviv.png',
+  amber: 'https://res.cloudinary.com/dgfqcinz9/image/upload/v1790317456/yellow_xk8rhk.png',
+  blossom: 'https://res.cloudinary.com/dgfqcinz9/image/upload/v1790317457/pink_scykcx.png',
+  garden: 'https://res.cloudinary.com/dgfqcinz9/image/upload/v1790317458/green_ypforz.png',
+  sunset: 'https://res.cloudinary.com/dgfqcinz9/image/upload/v1790317458/orange_v7smog.png',
 };
 
 const colorInputStyle = {
@@ -51,13 +68,34 @@ const colorInputStyle = {
   padding: '2px',
 };
 
+// A more compact swatch for cards where several colour fields are stacked in one column.
+const smallColorInputStyle = { ...colorInputStyle, height: '28px', maxWidth: '150px' };
+
+type GateStatus =
+  | { kind: 'checking' }
+  | { kind: 'live' }
+  | { kind: 'off' }
+  | { kind: 'notSetUp' }
+  | { kind: 'error'; message: string };
+
+const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+// Wix returns a 404 when the script has never been embedded on this site.
+const isNotFound = (error: unknown): boolean =>
+  /404|not[ _-]?found|NO_HTML_EMBEDS_ON_SITE/i.test(errorMessage(error));
+
 const DashboardPage: FC = () => {
   const [settings, setSettings] = useState<AgeGateSettings>(DEFAULT_SETTINGS);
   const [savedSettings, setSavedSettings] = useState<AgeGateSettings>(DEFAULT_SETTINGS);
   const [plan, setPlan] = useState<PlanInfo | null>(null);
   const [checkingPlan, setCheckingPlan] = useState(false);
+  // What Wix says about the age gate script on this site.
+  const [gateStatus, setGateStatus] = useState<GateStatus>({ kind: 'checking' });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [showProModal, setShowProModal] = useState(false);
+  // '' previews the default (main-language) text; otherwise a saved translation's code.
+  const [previewLanguage, setPreviewLanguage] = useState('');
 
   const dirty = JSON.stringify(settings) !== JSON.stringify(savedSettings);
 
@@ -68,12 +106,15 @@ const DashboardPage: FC = () => {
       try {
         const script = await embeddedScripts.getEmbeddedScript();
         const encoded = script.parameters?.config;
-        if (encoded) {
-          const stored = decodeConfig(encoded);
+        const stored = encoded ? decodeConfig(encoded) : null;
+        if (stored) {
           setSettings(stored);
           setSavedSettings(stored);
         }
+        // On only when Wix's flag and the saved "show the age gate" setting agree.
+        setGateStatus({ kind: !script.disabled && stored?.enabled ? 'live' : 'off' });
       } catch (error) {
+        setGateStatus(isNotFound(error) ? { kind: 'notSetUp' } : { kind: 'error', message: errorMessage(error) });
         // Nothing is saved until the first Save, so this can also just mean "no settings yet".
         console.error('Could not load saved age gate settings:', error);
       }
@@ -93,6 +134,49 @@ const DashboardPage: FC = () => {
       setSettings((current) => ({ ...current, [key]: value })),
     [],
   );
+
+  // Colour fields left over from a previous theme would otherwise keep overriding the
+  // newly picked theme's own look, so switching themes clears them back to "theme default".
+  const changeTheme = useCallback(
+    (theme: Theme) =>
+      setSettings((current) => ({
+        ...current,
+        theme,
+        popupBackgroundColor: '',
+        accentColor: '',
+        noButtonColor: '',
+        headingColor: '',
+        bodyColor: '',
+        primaryButtonTextColor: '',
+        secondaryButtonTextColor: '',
+      })),
+    [],
+  );
+
+  // One input per page, backed by the same newline-joined string the gate script reads.
+  const targetPathList = settings.targetPaths.split('\n');
+
+  const setTargetPath = (index: number, value: string) => {
+    const next = [...targetPathList];
+    next[index] = value;
+    update('targetPaths', next.join('\n'));
+  };
+
+  const addTargetPath = () => update('targetPaths', [...targetPathList, ''].join('\n'));
+
+  const removeTargetPath = (index: number) =>
+    update('targetPaths', targetPathList.filter((_, i) => i !== index).join('\n'));
+
+  const addTranslation = () => update('translations', [...settings.translations, { ...EMPTY_TRANSLATION }]);
+
+  const updateTranslation = (index: number, key: keyof Translation, value: string) => {
+    const next = [...settings.translations];
+    next[index] = { ...next[index]!, [key]: value };
+    update('translations', next);
+  };
+
+  const removeTranslation = (index: number) =>
+    update('translations', settings.translations.filter((_, i) => i !== index));
 
   const isPro = plan?.isPro ?? false;
   const planKnown = plan !== null && plan.status !== 'unknown';
@@ -116,7 +200,15 @@ const DashboardPage: FC = () => {
           ...settings,
           verificationMethod: settings.verificationMethod === 'dob' ? 'button' : settings.verificationMethod,
           theme: isProTheme(settings.theme) ? 'minimal' : settings.theme,
+          pageTargeting: 'all',
+          targetPaths: '',
+          translations: [],
+          customCss: '',
           logoUrl: '',
+          popupBackgroundColor: '',
+          accentColor: '',
+          noButtonColor: '',
+          buttonBorderRadius: DEFAULT_SETTINGS.buttonBorderRadius,
         };
 
     setSaving(true);
@@ -128,20 +220,17 @@ const DashboardPage: FC = () => {
       });
       setSettings(toSave);
       setSavedSettings(toSave);
+      setGateStatus({ kind: toSave.enabled ? 'live' : 'off' });
       dashboard.showToast({ message: 'Settings saved.', type: 'success' });
     } catch (error) {
       console.error('Failed to save age gate settings:', error);
-      const reason = error instanceof Error ? error.message : String(error);
+      const reason = errorMessage(error);
+      setGateStatus({ kind: 'error', message: reason });
       dashboard.showToast({ message: `Could not save your settings: ${reason}`, type: 'error', timeout: 'none' });
     } finally {
       setSaving(false);
     }
   };
-
-  const themeOptions = (Object.keys(THEME_LABELS) as Theme[]).map((id) => {
-    const locked = isProTheme(id) && !isPro;
-    return { id, value: locked ? `${THEME_LABELS[id]} — Pro` : THEME_LABELS[id], disabled: locked };
-  });
 
   const chooseLogo = async () => {
     try {
@@ -157,6 +246,15 @@ const DashboardPage: FC = () => {
     { id: 'button', value: 'Yes / No buttons' },
     { id: 'dob', value: isPro ? 'Date of birth' : 'Date of birth — Pro', disabled: !isPro },
   ];
+
+  const PAGE_TARGETING_LABELS: Record<PageTargetingMode, string> = {
+    all: 'Entire site',
+    specific: 'Specific pages',
+  };
+  const pageTargetingOptions = PAGE_TARGETING_MODES.map((id) => {
+    const locked = id === 'specific' && !isPro;
+    return { id, value: locked ? `${PAGE_TARGETING_LABELS[id]} — Pro` : PAGE_TARGETING_LABELS[id], disabled: locked };
+  });
 
   const textField = (
     label: string,
@@ -176,22 +274,27 @@ const DashboardPage: FC = () => {
 
   const numberField = (
     label: string,
-    key: 'minimumAge' | 'verificationDays' | 'headingFontSize' | 'buttonFontSize' | 'buttonBorderRadius',
+    key: 'minimumAge' | 'verificationDays' | 'headingFontSize' | 'buttonFontSize' | 'footerFontSize' | 'buttonBorderRadius',
     range: { min: number; max: number },
     suffix?: string,
     infoContent?: string,
+    disabled?: boolean,
+    width?: number,
   ) => (
     <FormField label={label} infoContent={infoContent}>
-      <NumberInput
-        min={range.min}
-        max={range.max}
-        value={settings[key]}
-        onChange={(value) => {
-          if (value !== null) update(key, value);
-        }}
-        suffix={suffix ? <Text size="small" secondary>{suffix}</Text> : undefined}
-        aria-label={label}
-      />
+      <Box style={width ? { width: `${width}px` } : undefined}>
+        <NumberInput
+          min={range.min}
+          max={range.max}
+          value={settings[key]}
+          onChange={(value) => {
+            if (value !== null) update(key, value);
+          }}
+          suffix={suffix ? <Text size="small" secondary>{suffix}</Text> : undefined}
+          aria-label={label}
+          disabled={disabled}
+        />
+      </Box>
     </FormField>
   );
 
@@ -206,18 +309,19 @@ const DashboardPage: FC = () => {
       | 'bodyColor'
       | 'primaryButtonTextColor'
       | 'secondaryButtonTextColor',
-    options?: { placeholderColor?: string; resetLabel?: string },
+    options?: { placeholderColor?: string; resetLabel?: string; disabled?: boolean; small?: boolean },
   ) => (
     <FormField label={label}>
       <input
         type="color"
         value={settings[key] || options?.placeholderColor || '#111111'}
         onChange={(event) => update(key, event.target.value)}
-        style={colorInputStyle}
+        style={options?.small ? smallColorInputStyle : colorInputStyle}
         aria-label={label}
+        disabled={options?.disabled}
       />
       {options?.resetLabel && settings[key] && (
-        <TextButton size="small" onClick={() => update(key, '')}>
+        <TextButton size="small" disabled={options?.disabled} onClick={() => update(key, '')}>
           {options.resetLabel}
         </TextButton>
       )}
@@ -235,8 +339,17 @@ const DashboardPage: FC = () => {
     secondaryButtonTextColor: settings.secondaryButtonTextColor,
   });
 
+  // A subtle black replaces Wix Design System's default blue input borders, scoped to
+  // this page only via its own CSS variables (see tokens-default.global.css).
+  const inputBorderVars = {
+    '--wds-input-border-color': 'rgba(0, 0, 0, 0.1)',
+    '--wds-input-border-color-hover': 'rgba(0, 0, 0, 0.2)',
+    '--wds-input-border-color-focus': 'rgba(0, 0, 0, 0.3)',
+  } as CSSProperties;
+
   return (
     <WixDesignSystemProvider>
+      <div style={inputBorderVars}>
       <Page maxWidth={1240}>
         <Page.Header
           title="Age Gate Settings"
@@ -264,6 +377,27 @@ const DashboardPage: FC = () => {
               <Cell span={8}>
             <Layout gap="24px">
               <Cell>
+                <Box direction="vertical" gap="SP2">
+                {gateStatus.kind === 'live' && (
+                  <SectionHelper appearance="success" fullWidth title="Age gate is switched on">
+                    Your settings are saved. Visitors see the age gate once you publish your site. It doesn't appear in the editor or in Preview.
+                  </SectionHelper>
+                )}
+                {gateStatus.kind === 'off' && (
+                  <SectionHelper appearance="standard" fullWidth title="Age gate is off">
+                    It's set up but hidden. Turn on "Show the age gate on your site" and click Save to show it.
+                  </SectionHelper>
+                )}
+                {gateStatus.kind === 'notSetUp' && (
+                  <SectionHelper appearance="warning" fullWidth title="Not on your site yet">
+                    Turn on "Show the age gate on your site" and click Save to put it on your site.
+                  </SectionHelper>
+                )}
+                {gateStatus.kind === 'error' && (
+                  <SectionHelper appearance="danger" fullWidth title="Couldn't reach the age gate on your site">
+                    {gateStatus.message}
+                  </SectionHelper>
+                )}
                 {plan?.status === 'unknown' ? (
                   <SectionHelper
                     appearance="warning"
@@ -282,13 +416,14 @@ const DashboardPage: FC = () => {
                     onAction={handleUpgrade}
                     secondaryActionProps={{ label: checkingPlan ? 'Checking…' : "I've upgraded — refresh", onClick: refreshPlan }}
                   >
-                    Date of birth verification, premium themes and a custom logo are Pro features. {plan?.isPaid ? 'Upgrade to the Pro plan to turn them on.' : 'Upgrade your plan to turn them on.'}
+                    Date of birth verification, premium themes, page targeting, translations, custom CSS, and custom branding (logo, colors, button styling) are Pro features. {plan?.isPaid ? 'Upgrade to the Pro plan to turn them on.' : 'Upgrade your plan to turn them on.'}
                   </SectionHelper>
                 ) : (
                   <Text size="small" secondary>
                     Plan: {plan?.packageName ?? 'Pro'}
                   </Text>
                 )}
+                </Box>
               </Cell>
               <Cell span={12}>
                 <Card>
@@ -306,6 +441,19 @@ const DashboardPage: FC = () => {
                           <ToggleSwitch
                             checked={settings.enabled}
                             onChange={() => update('enabled', !settings.enabled)}
+                          />
+                        </FormField>
+                      </Cell>
+                      <Cell span={12}>
+                        <FormField
+                          label="Always show the age gate (for testing)"
+                          infoContent="Ignores remembered visits so you always see the popup while you're testing. Leave this off once you're done — otherwise every real visitor sees the gate on every page, even after verifying."
+                          labelPlacement="right"
+                          stretchContent={false}
+                        >
+                          <ToggleSwitch
+                            checked={settings.previewMode}
+                            onChange={() => update('previewMode', !settings.previewMode)}
                           />
                         </FormField>
                       </Cell>
@@ -345,99 +493,476 @@ const DashboardPage: FC = () => {
                 </Card>
               </Cell>
               <Cell span={12}>
-                <Card>
-                  <Card.Header title="Text" />
-                  <Card.Divider />
-                  <Card.Content>
-                    <Layout gap="24px">
-                      <Cell span={6}>
-                        {textField('Heading text', 'headingText', undefined, 'Leave blank to generate one from the minimum age and method.')}
-                      </Cell>
-                      <Cell span={6}>{textField('Body text', 'bodyText', 'You must confirm your age to view this site.')}</Cell>
-                      <Cell span={6}>{textField('Yes button text', 'yesButtonText', `Yes, I am ${settings.minimumAge}+`)}</Cell>
-                      <Cell span={12}>
-                        {textField('Footer text', 'footerText', 'e.g. By entering this site you confirm you are of legal age.', 'Small print shown under the buttons. Leave blank for none.')}
-                      </Cell>
-                      <Cell span={6}>{textField('No button text', 'noButtonText', `No, I am ${settings.minimumAge}`)}</Cell>
-                    </Layout>
-                  </Card.Content>
-                </Card>
+                <Layout gap="24px">
+                  <Cell span={6}>
+                    <Card>
+                      <Card.Header title="Text" />
+                      <Card.Divider />
+                      <Card.Content>
+                        <Layout gap="18px">
+                          <Cell span={12}>
+                            {textField('Heading text', 'headingText', undefined, 'Leave blank to generate one from the minimum age and method.')}
+                          </Cell>
+                          <Cell span={12}>{textField('Body text', 'bodyText', 'You must confirm your age to view this site.')}</Cell>
+                          <Cell span={12}>{textField('Yes button text', 'yesButtonText', `Yes, I am ${settings.minimumAge}+`)}</Cell>
+                          <Cell span={12}>
+                            {textField('Footer text', 'footerText', 'e.g. By entering this site you confirm you are of legal age.', 'Small print shown under the buttons. Leave blank for none.')}
+                          </Cell>
+                          <Cell span={12}>{textField('No button text', 'noButtonText', `No, I am ${settings.minimumAge}`)}</Cell>
+                        </Layout>
+                      </Card.Content>
+                    </Card>
+                  </Cell>
+                  <Cell span={6}>
+                    <Card>
+                      <Card.Header title="Appearance/Font" />
+                      <Card.Divider />
+                      <Card.Content>
+                        <Layout gap="18px">
+                          <Cell span={6}>
+                            {colorField('Heading color', 'headingColor', { resetLabel: 'Use automatic color', small: true })}
+                          </Cell>
+                          <Cell span={6}>
+                            {colorField('Body text color', 'bodyColor', { resetLabel: 'Use automatic color', small: true })}
+                          </Cell>
+                          <Cell span={6}>
+                            {colorField('Yes button text color', 'primaryButtonTextColor', { resetLabel: 'Use automatic color', small: true })}
+                          </Cell>
+                          <Cell span={6}>
+                            {colorField('No button text color', 'secondaryButtonTextColor', { resetLabel: 'Use automatic color', small: true })}
+                          </Cell>
+                          {issues.length > 0 && (
+                            <Cell span={12}>
+                              <SectionHelper appearance="warning" fullWidth title="Check readability">
+                                {issues.join(' ')}
+                              </SectionHelper>
+                            </Cell>
+                          )}
+                          <Cell span={6}>
+                            {numberField('Heading text size', 'headingFontSize', { min: 16, max: 40 }, 'px', undefined, undefined, 150)}
+                          </Cell>
+                          <Cell span={6}>
+                            {numberField('Button text size', 'buttonFontSize', { min: 12, max: 24 }, 'px', undefined, undefined, 150)}
+                          </Cell>
+                          <Cell span={6}>
+                            {numberField('Footer text size', 'footerFontSize', { min: 8, max: 20 }, 'px', undefined, undefined, 150)}
+                          </Cell>
+                        </Layout>
+                      </Card.Content>
+                    </Card>
+                  </Cell>
+                </Layout>
               </Cell>
               <Cell span={12}>
                 <Card>
-                  <Card.Header title="Appearance" />
+                  <Card.Header
+                    title="Pro features"
+                    subtitle={
+                      isPro
+                        ? 'Themes, page targeting, translations, custom CSS, and branding.'
+                        : 'Unlock themes, page targeting, translations, custom CSS, and branding with the Pro plan.'
+                    }
+                  />
                   <Card.Divider />
                   <Card.Content>
+                    <div style={{ position: 'relative' }}>
                     <Layout gap="24px">
                       <Cell span={12}>
                         <FormField label="Theme">
-                          <Dropdown
-                            selectedId={settings.theme}
-                            options={themeOptions}
-                            onSelect={(option) => update('theme', option.id as Theme)}
-                            aria-label="Theme"
-                          />
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: 'repeat(3, 1fr)',
+                              gap: '12px',
+                            }}
+                          >
+                            {(Object.keys(THEME_LABELS) as Theme[]).map((id) => {
+                              const selected = settings.theme === id;
+                              return (
+                                <Box key={id} direction="vertical" gap="SP1" style={{ alignItems: 'center' }}>
+                                  <button
+                                    type="button"
+                                    disabled={!isPro}
+                                    onClick={() => changeTheme(id)}
+                                    aria-label={THEME_LABELS[id]}
+                                    aria-pressed={selected}
+                                    style={{
+                                      width: '100%',
+                                      padding: '3px',
+                                      borderRadius: '10px',
+                                      border: selected ? '2px solid #116dff' : '1px solid #dfe5eb',
+                                      background: 'transparent',
+                                      cursor: isPro ? 'pointer' : 'not-allowed',
+                                      display: 'block',
+                                      lineHeight: 0,
+                                    }}
+                                  >
+                                    <img
+                                      src={THEME_PREVIEW_IMAGES[id]}
+                                      alt=""
+                                      style={{ width: '100%', display: 'block', borderRadius: '7px' }}
+                                    />
+                                  </button>
+                                  <Text size="tiny" align="center">
+                                    {THEME_LABELS[id]}
+                                  </Text>
+                                </Box>
+                              );
+                            })}
+                          </div>
                         </FormField>
                       </Cell>
                       <Cell span={12}>
                         <FormField
-                          label="Logo"
-                          infoContent="Shown above the heading. A Pro feature."
+                          label="Where to show the popup"
+                          infoContent="Entire site shows it everywhere. Specific pages only shows it on the pages you list below."
                         >
-                          <Box gap="SP2" verticalAlign="middle">
-                            {settings.logoUrl && (
-                              <img src={settings.logoUrl} alt="" style={{ maxHeight: 48, maxWidth: 120, objectFit: 'contain' }} />
-                            )}
-                            <Button size="small" priority="secondary" disabled={!isPro} onClick={chooseLogo}>
-                              {settings.logoUrl ? 'Change logo' : isPro ? 'Choose logo' : 'Choose logo — Pro'}
-                            </Button>
-                            {settings.logoUrl && (
-                              <TextButton size="small" onClick={() => update('logoUrl', '')}>
-                                Remove
-                              </TextButton>
-                            )}
-                          </Box>
+                          <Dropdown
+                            selectedId={settings.pageTargeting}
+                            options={pageTargetingOptions}
+                            onSelect={(option) => update('pageTargeting', option.id as PageTargetingMode)}
+                            disabled={!isPro}
+                            aria-label="Where to show the popup"
+                          />
                         </FormField>
                       </Cell>
-                      <Cell span={6}>
+                      {settings.pageTargeting === 'specific' && (
+                        <Cell span={12}>
+                          <FormField
+                            label="Pages"
+                            infoContent="Enter each page's path, e.g. /shop. Use /shop/* to include every page under it."
+                          >
+                            <Box direction="vertical" gap="SP1">
+                              {targetPathList.map((path, index) => (
+                                <Box key={index} gap="SP1" verticalAlign="middle">
+                                  <Box style={{ flexGrow: 1 }}>
+                                    <Input
+                                      value={path}
+                                      onChange={(event) => setTargetPath(index, event.target.value)}
+                                      placeholder="/shop"
+                                      disabled={!isPro}
+                                      aria-label={`Page ${index + 1}`}
+                                    />
+                                  </Box>
+                                  <TextButton
+                                    size="small"
+                                    skin="destructive"
+                                    disabled={!isPro}
+                                    onClick={() => removeTargetPath(index)}
+                                  >
+                                    Remove
+                                  </TextButton>
+                                </Box>
+                              ))}
+                              <Box>
+                                <Button size="small" priority="secondary" disabled={!isPro} onClick={addTargetPath}>
+                                  + Add page
+                                </Button>
+                              </Box>
+                            </Box>
+                          </FormField>
+                        </Cell>
+                      )}
+                      <Cell span={12}>
+                        <Box direction="vertical" gap="SP1">
+                          <Text weight="bold">Translations</Text>
+                          <Text size="small" secondary>
+                            Override the popup's text based on the page's language — matches your site's language
+                            setting or Wix Multilingual, whichever the visitor is viewing.
+                          </Text>
+                        </Box>
+                      </Cell>
+                      {settings.translations.map((translation, index) => (
+                        <Cell span={12} key={index}>
+                          <Box
+                            direction="vertical"
+                            gap="SP2"
+                            style={{ border: '1px solid #dfe5eb', borderRadius: '8px', padding: '16px' }}
+                          >
+                            <Box gap="SP2" verticalAlign="middle">
+                              <Box style={{ maxWidth: 120 }}>
+                                <FormField
+                                  label="Language code"
+                                  infoContent='2-letter code, e.g. "es" for Spanish. Enter any code you like — it just needs to match what visitors will see.'
+                                >
+                                  <Input
+                                    value={translation.code}
+                                    onChange={(event) => updateTranslation(index, 'code', event.target.value)}
+                                    placeholder="es"
+                                    disabled={!isPro}
+                                    aria-label="Language code"
+                                  />
+                                </FormField>
+                              </Box>
+                              <TextButton size="small" skin="destructive" disabled={!isPro} onClick={() => removeTranslation(index)}>
+                                Remove language
+                              </TextButton>
+                            </Box>
+                            <FormField label="Heading text">
+                              <Input
+                                value={translation.headingText}
+                                onChange={(event) => updateTranslation(index, 'headingText', event.target.value)}
+                                placeholder={settings.headingText || 'Uses the default heading text'}
+                                disabled={!isPro}
+                                aria-label="Heading text"
+                              />
+                            </FormField>
+                            <FormField label="Body text">
+                              <Input
+                                value={translation.bodyText}
+                                onChange={(event) => updateTranslation(index, 'bodyText', event.target.value)}
+                                placeholder={settings.bodyText || 'Uses the default body text'}
+                                disabled={!isPro}
+                                aria-label="Body text"
+                              />
+                            </FormField>
+                            <FormField label="Yes button text">
+                              <Input
+                                value={translation.yesButtonText}
+                                onChange={(event) => updateTranslation(index, 'yesButtonText', event.target.value)}
+                                placeholder={settings.yesButtonText || 'Uses the default Yes button text'}
+                                disabled={!isPro}
+                                aria-label="Yes button text"
+                              />
+                            </FormField>
+                            <FormField label="No button text">
+                              <Input
+                                value={translation.noButtonText}
+                                onChange={(event) => updateTranslation(index, 'noButtonText', event.target.value)}
+                                placeholder={settings.noButtonText || 'Uses the default No button text'}
+                                disabled={!isPro}
+                                aria-label="No button text"
+                              />
+                            </FormField>
+                            <FormField label="Footer text">
+                              <Input
+                                value={translation.footerText}
+                                onChange={(event) => updateTranslation(index, 'footerText', event.target.value)}
+                                placeholder={settings.footerText || 'Uses the default footer text'}
+                                disabled={!isPro}
+                                aria-label="Footer text"
+                              />
+                            </FormField>
+                          </Box>
+                        </Cell>
+                      ))}
+                      <Cell span={12}>
+                        <Button size="small" priority="secondary" disabled={!isPro} onClick={addTranslation}>
+                          + Add language
+                        </Button>
+                      </Cell>
+                      <Cell span={12}>
+                        <Box style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '16px' }}>
+                          <Box style={{ flexGrow: 1 }}>
+                            <FormField
+                              label="Logo"
+                              infoContent="Shown above the heading. A Pro feature."
+                            >
+                              <Box gap="SP2" verticalAlign="middle">
+                                {settings.logoUrl && (
+                                  <img src={settings.logoUrl} alt="" style={{ maxHeight: 48, maxWidth: 120, objectFit: 'contain' }} />
+                                )}
+                                <Button size="small" priority="secondary" disabled={!isPro} onClick={chooseLogo}>
+                                  {settings.logoUrl ? 'Change logo' : isPro ? 'Choose logo' : 'Choose logo — Pro'}
+                                </Button>
+                                {settings.logoUrl && (
+                                  <TextButton size="small" disabled={!isPro} onClick={() => update('logoUrl', '')}>
+                                    Remove
+                                  </TextButton>
+                                )}
+                              </Box>
+                            </FormField>
+                          </Box>
+                          <Box style={{ width: '140px', flexShrink: 0 }}>
+                            {numberField(
+                              'Button border radius',
+                              'buttonBorderRadius',
+                              { min: 0, max: 100 },
+                              'px',
+                              '0 for square corners, 100 for fully rounded buttons.',
+                              !isPro,
+                            )}
+                          </Box>
+                        </Box>
+                      </Cell>
+                      <Cell span={4}>
                         {colorField('Popup background color', 'popupBackgroundColor', {
                           placeholderColor: '#ffffff',
                           resetLabel: 'Use theme background',
+                          disabled: !isPro,
                         })}
                       </Cell>
-                      <Cell span={6}>{colorField('Accent color (Yes button)', 'accentColor', {
+                      <Cell span={4}>
+                        {colorField('Accent color (Yes button)', 'accentColor', {
                           placeholderColor: '#111111',
                           resetLabel: 'Use theme color',
-                        })}</Cell>
-                      <Cell span={6}>
+                          disabled: !isPro,
+                        })}
+                      </Cell>
+                      <Cell span={4}>
                         {colorField('No button color', 'noButtonColor', {
                           placeholderColor: '#666666',
                           resetLabel: 'Use outlined style',
+                          disabled: !isPro,
                         })}
                       </Cell>
-                      <Cell span={6}>
-                        {colorField('Heading color', 'headingColor', { resetLabel: 'Use automatic color' })}
+                      <Cell span={12}>
+                        <FormField
+                          label="Custom CSS"
+                          infoContent="Applied after the built-in styles, so it can override anything above. Available classes: .container, .heading, .body, .buttonRow, .primaryButton (Yes), .secondaryButton (No), .logo, .footer, .dobField, .dobInput, .dobSegments, .dobSegment, .dobSlash, .dobError."
+                        >
+                          <InputArea
+                            value={settings.customCss}
+                            onChange={(event) => update('customCss', event.target.value)}
+                            placeholder={'.heading {\n  font-family: Georgia, serif;\n}'}
+                            rows={4}
+                            disabled={!isPro}
+                            aria-label="Custom CSS"
+                          />
+                        </FormField>
+                        <Text size="small" secondary>
+                          Not sure which element is which? Right-click the popup in the Live Preview panel and choose
+                          "Inspect" — it's a real, open shadow root, so DevTools shows every element and class name
+                          exactly as it renders.
+                        </Text>
                       </Cell>
-                      <Cell span={6}>
-                        {colorField('Body text color', 'bodyColor', { resetLabel: 'Use automatic color' })}
-                      </Cell>
-                      <Cell span={6}>
-                        {colorField('Yes button text color', 'primaryButtonTextColor', { resetLabel: 'Use automatic color' })}
-                      </Cell>
-                      <Cell span={6}>
-                        {colorField('No button text color', 'secondaryButtonTextColor', { resetLabel: 'Use automatic color' })}
-                      </Cell>
-                      {issues.length > 0 && (
-                        <Cell span={12}>
-                          <SectionHelper appearance="warning" fullWidth title="Check readability">
-                            {issues.join(' ')}
-                          </SectionHelper>
-                        </Cell>
-                      )}
-                      <Cell span={4}>{numberField('Heading size', 'headingFontSize', { min: 16, max: 40 }, 'px')}</Cell>
-                      <Cell span={4}>{numberField('Button text size', 'buttonFontSize', { min: 12, max: 24 }, 'px')}</Cell>
-                      <Cell span={4}>{numberField('Button border radius', 'buttonBorderRadius', { min: 0, max: 100 }, 'px', '0 for square corners, 100 for fully rounded buttons.')}</Cell>
                     </Layout>
+                    {!isPro && (
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setShowProModal((current) => !current)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') setShowProModal((current) => !current);
+                        }}
+                        style={{
+                          position: 'absolute',
+                          inset: 0,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '4px',
+                          background: 'rgba(255, 255, 255, 0.85)',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {!showProModal && (
+                          <>
+                            <style>{`
+                              @keyframes ageGateProCtaWiggle {
+                                0%, 100% { transform: rotate(-2deg); }
+                                50% { transform: rotate(2deg); }
+                              }
+                            `}</style>
+                            <button
+                              type="button"
+                              style={{
+                                padding: '10px 22px',
+                                borderRadius: '999px',
+                                border: 'none',
+                                color: '#ffffff',
+                                fontWeight: 700,
+                                fontSize: '13px',
+                                cursor: 'pointer',
+                                background: 'linear-gradient(90deg, #ff7a59, #8b5cf6)',
+                                animation: 'ageGateProCtaWiggle 2.4s ease-in-out infinite',
+                              }}
+                            >
+                              Pro feature — click to learn more
+                            </button>
+                          </>
+                        )}
+                        {showProModal && (
+                          <div
+                            role="dialog"
+                            onClick={(event) => event.stopPropagation()}
+                            style={{
+                              position: 'relative',
+                              width: '85%',
+                              maxWidth: '300px',
+                              padding: '28px 20px 20px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              gap: '8px',
+                              textAlign: 'center',
+                              background: '#f5f5f5',
+                              borderRadius: '16px',
+                              boxShadow: '0 12px 32px rgba(0, 0, 0, 0.2)',
+                              cursor: 'default',
+                            }}
+                          >
+                            <button
+                              type="button"
+                              aria-label="Close"
+                              onClick={() => setShowProModal(false)}
+                              style={{
+                                position: 'absolute',
+                                top: '10px',
+                                right: '10px',
+                                width: '24px',
+                                height: '24px',
+                                border: 'none',
+                                borderRadius: '50%',
+                                background: 'transparent',
+                                color: '#666666',
+                                fontSize: '16px',
+                                lineHeight: 1,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              ×
+                            </button>
+                            <div
+                              style={{
+                                width: 48,
+                                height: 48,
+                                borderRadius: '50%',
+                                background: '#fdf0d5',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: 24,
+                                marginBottom: '2px',
+                              }}
+                              aria-hidden="true"
+                            >
+                              👑
+                            </div>
+                            <Text size="medium" weight="bold">
+                              Upgrade to Premium
+                            </Text>
+                            <Text size="small" secondary>
+                              Unlock this feature and more with Premium.
+                            </Text>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowProModal(false);
+                                handleUpgrade();
+                              }}
+                              style={{
+                                width: '100%',
+                                marginTop: '10px',
+                                padding: '10px 0',
+                                borderRadius: '999px',
+                                border: 'none',
+                                color: '#ffffff',
+                                fontWeight: 600,
+                                fontSize: '13px',
+                                cursor: 'pointer',
+                                background: 'linear-gradient(90deg, #ff7a59, #8b5cf6)',
+                              }}
+                            >
+                              Upgrade now
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    </div>
                   </Card.Content>
                 </Card>
               </Cell>
@@ -452,7 +977,24 @@ const DashboardPage: FC = () => {
                     />
                     <Card.Divider />
                     <Card.Content>
-                      <PopupPreview settings={settings} />
+                      <Box direction="vertical" gap="SP2">
+                        {settings.translations.some((t) => t.code) && (
+                          <FormField label="Preview language">
+                            <Dropdown
+                              selectedId={previewLanguage || 'default'}
+                              options={[
+                                { id: 'default', value: 'Default' },
+                                ...settings.translations
+                                  .filter((t) => t.code)
+                                  .map((t) => ({ id: t.code, value: t.code })),
+                              ]}
+                              onSelect={(option) => setPreviewLanguage(option.id === 'default' ? '' : String(option.id))}
+                              aria-label="Preview language"
+                            />
+                          </FormField>
+                        )}
+                        <PopupPreview settings={resolveLocalizedSettings(settings, previewLanguage)} />
+                      </Box>
                     </Card.Content>
                   </Card>
                 </div>
@@ -461,6 +1003,7 @@ const DashboardPage: FC = () => {
           )}
         </Page.Content>
       </Page>
+      </div>
     </WixDesignSystemProvider>
   );
 };

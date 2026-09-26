@@ -31,27 +31,43 @@ function safeLogoUrl(url: string): string {
   return url.startsWith('https://') ? url : '';
 }
 
+// Themes with a segmented DD / MM / YYYY date-of-birth field instead of a native date
+// picker, plus what their submit button says and its default copy.
+const SEGMENTED_DOB_THEMES: Partial<Record<string, { submitLabel: string; heading: string; body: string }>> = {
+  noir: { submitLabel: 'Enter', heading: 'Confirm your age', body: 'Enter your date of birth to continue' },
+  blossom: { submitLabel: 'Confirm →', heading: 'Confirm your age', body: 'Enter your date of birth to continue' },
+};
+
+// Whether a theme uses the segmented DD / MM / YYYY fields (also used client-side in
+// gate.ts, to read the right input group and move focus between segments).
+export function isSegmentedDobTheme(theme: string): boolean {
+  return theme in SEGMENTED_DOB_THEMES;
+}
+
 // Builds the popup markup and styling variables. Shared by the live script and the
 // dashboard preview, so the preview always matches what visitors see.
 export function buildPopup(settings: AgeGateSettings): PopupMarkup {
   const { minimumAge, verificationMethod, theme } = settings;
   const isDob = verificationMethod === 'dob';
-  const isNoir = theme === 'noir';
+  const segmentedDob = SEGMENTED_DOB_THEMES[theme];
 
   const heading =
     settings.headingText ||
-    (isDob ? (isNoir ? 'Confirm your age' : 'Please confirm your date of birth') : `Are you ${minimumAge} or older?`);
+    (isDob ? (segmentedDob?.heading ?? 'Please confirm your date of birth') : `Are you ${minimumAge} or older?`);
   const body =
     settings.bodyText ||
-    (isNoir && isDob ? 'Enter your date of birth to continue' : 'You must confirm your age to view this site.');
+    (isDob ? (segmentedDob?.body ?? 'You must confirm your age to view this site.') : 'You must confirm your age to view this site.');
   const yesText = settings.yesButtonText || `Yes, I am ${minimumAge}+`;
   const noText = settings.noButtonText || `No, I am ${minimumAge}`;
 
   const logoUrl = safeLogoUrl(settings.logoUrl);
   const logoHtml = logoUrl ? `<img class="logo" src="${escapeHtml(logoUrl)}" alt="" />` : '';
   const footerHtml = settings.footerText ? `<p class="footer">${escapeHtml(settings.footerText)}</p>` : '';
+  const previewNoteHtml = settings.previewMode
+    ? `<p class="previewNote">Always shown during testing</p>`
+    : '';
 
-  const dobFields = isNoir
+  const dobFields = segmentedDob
     ? `<div class="dobSegments">
           <input class="dobSegment" id="age-gate-dob-dd" inputmode="numeric" maxlength="2" placeholder="DD" aria-label="Day" autocomplete="bday-day" />
           <span class="dobSlash">/</span>
@@ -68,7 +84,7 @@ export function buildPopup(settings: AgeGateSettings): PopupMarkup {
           <p class="dobError" id="age-gate-dob-error" hidden></p>
         </div>
         <div class="buttonRow">
-          <button type="button" class="primaryButton" id="age-gate-submit">${isNoir ? 'Enter' : 'Confirm'}</button>
+          <button type="button" class="primaryButton" id="age-gate-submit">${segmentedDob?.submitLabel ?? 'Confirm'}</button>
         </div>`
     : `<div class="buttonRow">
           <button type="button" class="primaryButton" id="age-gate-yes">${escapeHtml(yesText)}</button>
@@ -76,6 +92,7 @@ export function buildPopup(settings: AgeGateSettings): PopupMarkup {
         </div>`;
 
   const html = `<div class="container ${themeClass(settings)}" role="dialog" aria-modal="true" aria-labelledby="age-gate-heading">
+      ${previewNoteHtml}
       ${logoHtml}
       <h2 class="heading" id="age-gate-heading">${escapeHtml(heading)}</h2>
       <p class="body">${escapeHtml(body)}</p>
@@ -86,6 +103,7 @@ export function buildPopup(settings: AgeGateSettings): PopupMarkup {
   const cssVars: Record<string, string> = {
     '--heading-font-size': `${settings.headingFontSize}px`,
     '--button-font-size': `${settings.buttonFontSize}px`,
+    '--footer-font-size': `${settings.footerFontSize}px`,
     '--button-radius': `${settings.buttonBorderRadius}px`,
     ...resolvePopupColors({
       theme,
@@ -104,7 +122,11 @@ export function buildPopup(settings: AgeGateSettings): PopupMarkup {
 
 // Shown when a visitor doesn't meet the minimum age.
 export function buildRestrictedHtml(settings: AgeGateSettings): string {
+  const previewNoteHtml = settings.previewMode
+    ? `<p class="previewNote">Always shown during testing</p>`
+    : '';
   return `<div class="container ${themeClass(settings)}" role="alertdialog" aria-modal="true" aria-labelledby="age-gate-heading">
+      ${previewNoteHtml}
       <h2 class="heading" id="age-gate-heading">Access Restricted</h2>
       <p class="body">You must be ${escapeHtml(String(settings.minimumAge))} or older to view this site.</p>
     </div>`;

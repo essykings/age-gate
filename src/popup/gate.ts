@@ -1,5 +1,5 @@
-import type { AgeGateSettings } from '../settings/settings';
-import { buildPopup, buildRestrictedHtml } from './render';
+import { matchesTargetPaths, type AgeGateSettings } from '../settings/settings';
+import { buildPopup, buildRestrictedHtml, isSegmentedDobTheme } from './render';
 import { POPUP_CSS } from './styles';
 
 const STORAGE_KEY = 'age-gate-verified';
@@ -87,7 +87,11 @@ export interface GateOptions {
 // so the site's styles can't break the popup.
 export function mountAgeGate(settings: AgeGateSettings, options: GateOptions = {}): void {
   if (!settings.enabled) return;
-  if (!options.ignoreStoredVerification && isVerified(settings.verificationDays)) return;
+  if (settings.pageTargeting === 'specific' && !matchesTargetPaths(window.location.pathname, settings.targetPaths)) {
+    return;
+  }
+  const bypassStored = options.ignoreStoredVerification || settings.previewMode;
+  if (!bypassStored && isVerified(settings.verificationDays)) return;
   if (document.querySelector('[data-age-gate]')) return;
 
   const host = document.createElement('div');
@@ -106,6 +110,14 @@ export function mountAgeGate(settings: AgeGateSettings, options: GateOptions = {
   overlay.innerHTML = popup.html;
 
   root.append(style, overlay);
+
+  // Custom CSS is appended last so it can override the built-in styles above.
+  if (settings.customCss) {
+    const customStyle = document.createElement('style');
+    customStyle.textContent = settings.customCss;
+    root.append(customStyle);
+  }
+
   document.body.appendChild(host);
 
   // Keep the page behind the gate from scrolling while it's up.
@@ -131,7 +143,7 @@ export function mountAgeGate(settings: AgeGateSettings, options: GateOptions = {
     overlay.innerHTML = buildRestrictedHtml(settings);
   };
 
-  const segmented = settings.theme === 'noir';
+  const segmented = isSegmentedDobTheme(settings.theme);
 
   if (settings.verificationMethod === 'dob') {
     if (segmented) {
