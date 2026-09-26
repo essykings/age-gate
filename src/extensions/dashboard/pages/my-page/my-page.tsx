@@ -40,6 +40,9 @@ import { PopupPreview } from './popup-preview';
 import { contrastIssues } from '../../../../settings/color';
 import { fetchPlanInfo, getUpgradeUrl, type PlanInfo } from '../../../../settings/plan';
 
+// The review-prompt Dashboard Modal's extension id (see review-prompt.extension.ts).
+const REVIEW_PROMPT_MODAL_ID = 'f5435726-b327-45d2-b53a-fd32939aef40';
+
 const THEME_LABELS: Record<Theme, string> = {
   minimal: 'Minimal (light)',
   noir: 'Noir (dark, uppercase)',
@@ -108,7 +111,11 @@ const DashboardPage: FC = () => {
         const encoded = script.parameters?.config;
         const stored = encoded ? decodeConfig(encoded) : null;
         if (stored) {
-          setSettings(stored);
+          // ?reset-review-prompt lets us retest the one-time review prompt on a site
+          // that's already seen it, without a fresh install. Left as a pending change —
+          // savedSettings keeps the real stored value, so Save is what actually clears it.
+          const resetReviewPrompt = new URLSearchParams(window.location.search).has('reset-review-prompt');
+          setSettings(resetReviewPrompt ? { ...stored, reviewPrompted: false } : stored);
           setSavedSettings(stored);
         }
         // On only when Wix's flag and the saved "show the age gate" setting agree.
@@ -211,6 +218,11 @@ const DashboardPage: FC = () => {
           buttonBorderRadius: DEFAULT_SETTINGS.buttonBorderRadius,
         };
 
+    // Ask for a review at most once, right after the gate first goes live — a "happy
+    // moment", not a random save. Flipping the flag here saves it in this same request.
+    const promptForReview = toSave.enabled && !toSave.reviewPrompted;
+    if (promptForReview) toSave.reviewPrompted = true;
+
     setSaving(true);
     try {
       // Embedding the script (with its settings) is what puts the age gate on the site.
@@ -222,6 +234,7 @@ const DashboardPage: FC = () => {
       setSavedSettings(toSave);
       setGateStatus({ kind: toSave.enabled ? 'live' : 'off' });
       dashboard.showToast({ message: 'Settings saved.', type: 'success' });
+      if (promptForReview) dashboard.openModal(REVIEW_PROMPT_MODAL_ID);
     } catch (error) {
       console.error('Failed to save age gate settings:', error);
       const reason = errorMessage(error);

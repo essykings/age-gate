@@ -55,6 +55,9 @@ export interface AgeGateSettings {
   // Always show the gate, ignoring any remembered verification. For testing the popup
   // itself; turn this off before real visitors rely on "Remember verification".
   previewMode: boolean;
+  // Whether we've already asked this site owner to leave a review. Stored here (rather
+  // than the browser) so it survives across devices and doesn't ask more than once.
+  reviewPrompted: boolean;
   minimumAge: number;
   verificationMethod: VerificationMethod;
   verificationDays: number;
@@ -111,6 +114,7 @@ export const EMPTY_TRANSLATION: Translation = {
 export const DEFAULT_SETTINGS: AgeGateSettings = {
   enabled: true,
   previewMode: false,
+  reviewPrompted: false,
   minimumAge: 21,
   verificationMethod: 'button',
   verificationDays: 30,
@@ -177,6 +181,7 @@ export function normalizeSettings(row: Record<string, unknown> | null | undefine
   return {
     enabled: typeof r.enabled === 'boolean' ? r.enabled : d.enabled,
     previewMode: typeof r.previewMode === 'boolean' ? r.previewMode : d.previewMode,
+    reviewPrompted: typeof r.reviewPrompted === 'boolean' ? r.reviewPrompted : d.reviewPrompted,
     minimumAge: num(r.minimumAge, d.minimumAge),
     verificationMethod: pick(VERIFICATION_METHODS, r.verificationMethod, d.verificationMethod),
     verificationDays: parseVerificationDays(r.verificationDays, d.verificationDays),
