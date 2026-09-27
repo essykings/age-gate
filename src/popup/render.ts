@@ -58,7 +58,7 @@ export function buildPopup(settings: AgeGateSettings): PopupMarkup {
     settings.bodyText ||
     (isDob ? (segmentedDob?.body ?? 'You must confirm your age to view this site.') : 'You must confirm your age to view this site.');
   const yesText = settings.yesButtonText || `Yes, I am ${minimumAge}+`;
-  const noText = settings.noButtonText || `No, I am ${minimumAge}`;
+  const noText = settings.noButtonText || `No, I am under ${minimumAge}`;
 
   const logoUrl = safeLogoUrl(settings.logoUrl);
   const logoHtml = logoUrl ? `<img class="logo" src="${escapeHtml(logoUrl)}" alt="" />` : '';

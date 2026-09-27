@@ -570,7 +570,7 @@ const DashboardPage: FC = () => {
                           <Cell span={12}>
                             {textField('Footer text', 'footerText', 'e.g. By entering this site you confirm you are of legal age.', 'Small print shown under the buttons. Leave blank for none.')}
                           </Cell>
-                          <Cell span={12}>{textField('No button text', 'noButtonText', `No, I am ${settings.minimumAge}`)}</Cell>
+                          <Cell span={12}>{textField('No button text', 'noButtonText', `No, I am under ${settings.minimumAge}`)}</Cell>
                         </Layout>
                       </Card.Content>
                     </Card>
