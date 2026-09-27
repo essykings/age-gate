@@ -1,4 +1,10 @@
-import { hasTargetPaths, matchesTargetPaths, normalizeRedirectUrl, type AgeGateSettings } from '../settings/settings';
+import {
+  hasTargetPaths,
+  matchesTargetPaths,
+  normalizeRedirectUrl,
+  type AgeGateSettings,
+} from '../settings/settings';
+import { uiStrings } from './i18n';
 import { buildPopup, buildRestrictedHtml, isSegmentedDobTheme } from './render';
 import { POPUP_CSS } from './styles';
 
@@ -80,28 +86,56 @@ function readDob(root: ShadowRoot, segmented: boolean): string {
   return real ? iso : 'invalid';
 }
 
+// Keeps Tab / Shift+Tab inside the popup, so keyboard users can't reach the page behind it.
+function trapFocus(root: ShadowRoot, event: KeyboardEvent): void {
+  if (event.key !== 'Tab') return;
+  const focusable = Array.from(
+    root.querySelectorAll<HTMLElement>('button, input, a[href], [tabindex]:not([tabindex="-1"])'),
+  ).filter((el) => !el.hasAttribute('disabled'));
+  if (focusable.length === 0) {
+    event.preventDefault();
+    return;
+  }
+  const first = focusable[0]!;
+  const last = focusable[focusable.length - 1]!;
+  const active = root.activeElement;
+  if (event.shiftKey && (active === first || !active)) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 export interface GateOptions {
   // Show the gate even if this browser already verified, e.g. to test it.
   ignoreStoredVerification?: boolean;
+  // The language the visitor is viewing the page in, for the built-in wording.
+  language?: string;
 }
 
 // Shows the age gate over the whole page. Runs in the site's own page, in a shadow root
 // so the site's styles can't break the popup.
 export function mountAgeGate(settings: AgeGateSettings, options: GateOptions = {}): void {
   if (!settings.enabled) return;
-  // "Specific pages" with no pages entered yet falls back to the whole site: an age gate
-  // that quietly shows nowhere is worse than one that shows everywhere.
+  const { language } = options;
   if (
     settings.pageTargeting === 'specific' &&
     hasTargetPaths(settings.targetPaths) &&
-    !matchesTargetPaths(window.location.pathname, settings.targetPaths)
+    !matchesTargetPaths(window.location.pathname, settings.targetPaths, {
+      hostname: window.location.hostname,
+      language,
+    })
   ) {
     return;
   }
-  const bypassStored = options.ignoreStoredVerification || settings.previewMode;
-  if (!bypassStored && isVerified(settings.verificationDays)) return;
+  // Testing (the dashboard toggle or ?age-gate-test) ignores a remembered answer.
+  const testing = options.ignoreStoredVerification || settings.previewMode;
+  if (!testing && isVerified(settings.verificationDays)) return;
   if (document.querySelector('[data-age-gate]')) return;
 
+  const strings = uiStrings(language);
   const host = document.createElement('div');
   host.setAttribute('data-age-gate', '');
   const root = host.attachShadow({ mode: 'open' });
@@ -110,8 +144,8 @@ export function mountAgeGate(settings: AgeGateSettings, options: GateOptions = {
   style.textContent = POPUP_CSS;
 
   const overlay = document.createElement('div');
-  overlay.className = 'overlay';
-  const popup = buildPopup(settings);
+  overlay.className = settings.backdrop === 'dim' ? 'overlay' : `overlay backdrop-${settings.backdrop}`;
+  const popup = buildPopup(settings, language);
   for (const [name, value] of Object.entries(popup.cssVars)) {
     overlay.style.setProperty(name, value);
   }
@@ -142,14 +176,24 @@ export function mountAgeGate(settings: AgeGateSettings, options: GateOptions = {
     close();
   };
 
+  const showRestricted = () => {
+    overlay.innerHTML = buildRestrictedHtml(settings, language);
+    // Nothing to click on this screen; focus the card so screen readers announce it.
+    const card = root.querySelector<HTMLElement>('.container');
+    card?.setAttribute('tabindex', '-1');
+    card?.focus();
+  };
+
   const denyAccess = () => {
     const redirect = safeRedirect(settings.redirectUrl);
     if (redirect) {
       window.location.href = redirect;
       return;
     }
-    overlay.innerHTML = buildRestrictedHtml(settings);
+    showRestricted();
   };
+
+  root.addEventListener('keydown', (event) => trapFocus(root, event as KeyboardEvent));
 
   const segmented = isSegmentedDobTheme(settings.theme);
 
@@ -173,10 +217,10 @@ export function mountAgeGate(settings: AgeGateSettings, options: GateOptions = {
       };
 
       const dobValue = readDob(root, segmented);
-      if (!dobValue) return showError('Please enter your date of birth.');
+      if (!dobValue) return showError(strings.errorEmpty);
 
       const age = calculateAge(dobValue);
-      if (age === null) return showError("That date doesn't look right — please check it.");
+      if (age === null) return showError(strings.errorInvalid);
 
       if (age >= settings.minimumAge) grantAccess();
       else denyAccess();
@@ -184,7 +228,10 @@ export function mountAgeGate(settings: AgeGateSettings, options: GateOptions = {
 
     root.querySelector('#age-gate-submit')?.addEventListener('click', submit);
     root.addEventListener('keydown', (event) => {
-      if ((event as KeyboardEvent).key === 'Enter') submit();
+      // Enter in a date field submits. On a button, the browser already turns Enter into a
+      // click, so handling it here too would submit twice.
+      const target = event.target as HTMLElement | null;
+      if ((event as KeyboardEvent).key === 'Enter' && target?.tagName === 'INPUT') submit();
     });
   } else {
     root.querySelector('#age-gate-yes')?.addEventListener('click', grantAccess);

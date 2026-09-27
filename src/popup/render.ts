@@ -1,5 +1,6 @@
 import { resolvePopupColors } from '../settings/color';
 import type { AgeGateSettings } from '../settings/settings';
+import { uiStrings, type UiStrings } from './i18n';
 
 export interface PopupMarkup {
   // The popup card (inside the .overlay element).
@@ -17,8 +18,12 @@ export function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+// Today's date in the visitor's own time zone (toISOString would give the UTC date, which
+// is a day off near midnight for anyone not on UTC).
 export function todayISO(): string {
-  return new Date().toISOString().split('T')[0]!;
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
 // Theme class names use a hyphen, e.g. "theme-noir". Minimal has no extra class.
@@ -32,50 +37,53 @@ function safeLogoUrl(url: string): string {
 }
 
 // Themes with a segmented DD / MM / YYYY date-of-birth field instead of a native date
-// picker, plus what their submit button says and its default copy.
-const SEGMENTED_DOB_THEMES: Partial<Record<string, { submitLabel: string; heading: string; body: string }>> = {
-  noir: { submitLabel: 'Enter', heading: 'Confirm your age', body: 'Enter your date of birth to continue' },
-  blossom: { submitLabel: 'Confirm →', heading: 'Confirm your age', body: 'Enter your date of birth to continue' },
+// picker, and what their submit button says.
+const SEGMENTED_DOB_THEMES: Partial<Record<string, { submitLabel: (strings: UiStrings) => string }>> = {
+  noir: { submitLabel: (strings) => strings.enter },
+  blossom: { submitLabel: (strings) => `${strings.confirm} →` },
 };
 
 // Whether a theme uses the segmented DD / MM / YYYY fields (also used client-side in
 // gate.ts, to read the right input group and move focus between segments).
 export function isSegmentedDobTheme(theme: string): boolean {
-  return theme in SEGMENTED_DOB_THEMES;
+  return Object.prototype.hasOwnProperty.call(SEGMENTED_DOB_THEMES, theme);
+}
+
+function previewNote(settings: AgeGateSettings, strings: UiStrings): string {
+  return settings.previewMode ? `<p class="previewNote">${escapeHtml(strings.testingNote)}</p>` : '';
 }
 
 // Builds the popup markup and styling variables. Shared by the live script and the
-// dashboard preview, so the preview always matches what visitors see.
-export function buildPopup(settings: AgeGateSettings): PopupMarkup {
+// dashboard preview, so the preview always matches what visitors see. `language` is the
+// language the visitor is viewing the page in; it picks the built-in wording for anything
+// the owner left blank.
+export function buildPopup(settings: AgeGateSettings, language?: string | null): PopupMarkup {
   const { minimumAge, verificationMethod, theme } = settings;
+  const strings = uiStrings(language);
   const isDob = verificationMethod === 'dob';
   const segmentedDob = SEGMENTED_DOB_THEMES[theme];
 
   const heading =
     settings.headingText ||
-    (isDob ? (segmentedDob?.heading ?? 'Please confirm your date of birth') : `Are you ${minimumAge} or older?`);
-  const body =
-    settings.bodyText ||
-    (isDob ? (segmentedDob?.body ?? 'You must confirm your age to view this site.') : 'You must confirm your age to view this site.');
-  const yesText = settings.yesButtonText || `Yes, I am ${minimumAge}+`;
-  const noText = settings.noButtonText || `No, I am under ${minimumAge}`;
+    (isDob ? (segmentedDob ? strings.segmentedHeading : strings.dobHeading) : strings.heading(minimumAge));
+  const body = settings.bodyText || (isDob && segmentedDob ? strings.segmentedBody : strings.body);
+  const yesText = settings.yesButtonText || strings.yes(minimumAge);
+  const noText = settings.noButtonText || strings.no(minimumAge);
 
   const logoUrl = safeLogoUrl(settings.logoUrl);
   const logoHtml = logoUrl ? `<img class="logo" src="${escapeHtml(logoUrl)}" alt="" />` : '';
   const footerHtml = settings.footerText ? `<p class="footer">${escapeHtml(settings.footerText)}</p>` : '';
-  const previewNoteHtml = settings.previewMode
-    ? `<p class="previewNote">Always shown during testing</p>`
-    : '';
+  const previewNoteHtml = previewNote(settings, strings);
 
   const dobFields = segmentedDob
     ? `<div class="dobSegments">
-          <input class="dobSegment" id="age-gate-dob-dd" inputmode="numeric" maxlength="2" placeholder="DD" aria-label="Day" autocomplete="bday-day" />
+          <input class="dobSegment" id="age-gate-dob-dd" inputmode="numeric" maxlength="2" placeholder="${escapeHtml(strings.dayPlaceholder)}" aria-label="${escapeHtml(strings.day)}" autocomplete="bday-day" />
           <span class="dobSlash">/</span>
-          <input class="dobSegment" id="age-gate-dob-mm" inputmode="numeric" maxlength="2" placeholder="MM" aria-label="Month" autocomplete="bday-month" />
+          <input class="dobSegment" id="age-gate-dob-mm" inputmode="numeric" maxlength="2" placeholder="${escapeHtml(strings.monthPlaceholder)}" aria-label="${escapeHtml(strings.month)}" autocomplete="bday-month" />
           <span class="dobSlash">/</span>
-          <input class="dobSegment" id="age-gate-dob-yyyy" inputmode="numeric" maxlength="4" placeholder="YYYY" aria-label="Year" autocomplete="bday-year" />
+          <input class="dobSegment" id="age-gate-dob-yyyy" inputmode="numeric" maxlength="4" placeholder="${escapeHtml(strings.yearPlaceholder)}" aria-label="${escapeHtml(strings.year)}" autocomplete="bday-year" />
         </div>`
-    : `<label class="dobLabel" for="age-gate-dob">Date of birth</label>
+    : `<label class="dobLabel" for="age-gate-dob">${escapeHtml(strings.dobLabel)}</label>
         <input class="dobInput" type="date" id="age-gate-dob" max="${todayISO()}" />`;
 
   const actions = isDob
@@ -84,7 +92,7 @@ export function buildPopup(settings: AgeGateSettings): PopupMarkup {
           <p class="dobError" id="age-gate-dob-error" hidden></p>
         </div>
         <div class="buttonRow">
-          <button type="button" class="primaryButton" id="age-gate-submit">${segmentedDob?.submitLabel ?? 'Confirm'}</button>
+          <button type="button" class="primaryButton" id="age-gate-submit">${escapeHtml(segmentedDob ? segmentedDob.submitLabel(strings) : strings.confirm)}</button>
         </div>`
     : `<div class="buttonRow">
           <button type="button" class="primaryButton" id="age-gate-yes">${escapeHtml(yesText)}</button>
@@ -121,13 +129,13 @@ export function buildPopup(settings: AgeGateSettings): PopupMarkup {
 }
 
 // Shown when a visitor doesn't meet the minimum age.
-export function buildRestrictedHtml(settings: AgeGateSettings): string {
-  const previewNoteHtml = settings.previewMode
-    ? `<p class="previewNote">Always shown during testing</p>`
-    : '';
+export function buildRestrictedHtml(settings: AgeGateSettings, language?: string | null): string {
+  const strings = uiStrings(language);
+  const heading = settings.restrictedHeadingText || strings.restrictedHeading;
+  const body = settings.restrictedBodyText || strings.restrictedBody(settings.minimumAge);
   return `<div class="container ${themeClass(settings)}" role="alertdialog" aria-modal="true" aria-labelledby="age-gate-heading">
-      ${previewNoteHtml}
-      <h2 class="heading" id="age-gate-heading">Access Restricted</h2>
-      <p class="body">You must be ${escapeHtml(String(settings.minimumAge))} or older to view this site.</p>
+      ${previewNote(settings, strings)}
+      <h2 class="heading" id="age-gate-heading">${escapeHtml(heading)}</h2>
+      <p class="body">${escapeHtml(body)}</p>
     </div>`;
 }

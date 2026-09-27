@@ -80,14 +80,36 @@ button, input {
   opacity: 0.7;
 }
 
+/* The overlay scrolls on its own: the page behind it is locked, so a popup taller than
+   the screen (small phone on its side, logo + date of birth + footer) must still let the
+   visitor reach its buttons. margin: auto on the card centres it when it fits and lets it
+   start at the top when it doesn't -- align-items: center would cut off its top edge. */
 .overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
   display: flex;
-  align-items: center;
-  justify-content: center;
+  padding: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   z-index: 2147483647;
+}
+
+.overlay > .container {
+  margin: auto;
+  width: 100%;
+}
+
+/* Backdrop choices (settings.backdrop). "dim" is the plain .overlay above. */
+.overlay.backdrop-blur {
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+.overlay.backdrop-solid {
+  background: #0d0d10;
 }
 @media (max-width: 480px) {
   .container {

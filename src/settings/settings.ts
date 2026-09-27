@@ -12,11 +12,45 @@ export type VerificationMethod = (typeof VERIFICATION_METHODS)[number];
 export const PAGE_TARGETING_MODES = ['all', 'specific'] as const;
 export type PageTargetingMode = (typeof PAGE_TARGETING_MODES)[number];
 
-// One path per line, e.g. "/shop" or "/shop/*" for everything under it.
-function normalizePath(path: string): string {
-  const trimmed = path.trim();
-  if (!trimmed || trimmed === '/') return '/';
-  return trimmed.replace(/\/+$/, '');
+// Free Wix addresses put the site's name in front of every page, e.g.
+// "user.wixstudio.com/my-site-1/shop". Pages are matched without that prefix.
+const FREE_WIX_HOST = /(^|\.)(wixsite\.com|wixstudio\.com|wixstudio\.io|editorx\.io)$/i;
+
+export interface PageContext {
+  // The address's host name, used to recognise free Wix addresses.
+  hostname?: string;
+  // The language the visitor is viewing (e.g. "fr"), so "/fr/shop" also matches "/shop".
+  language?: string;
+}
+
+function pathSegments(value: string): string[] {
+  let path = value.trim();
+  if (/^https?:\/\//i.test(path)) {
+    try {
+      path = new URL(path).pathname;
+    } catch {
+      // Not a real URL; treat it as a path below.
+    }
+  }
+  path = path.split(/[?#]/)[0] ?? '';
+  try {
+    path = decodeURIComponent(path);
+  } catch {
+    // Leave malformed escapes as typed.
+  }
+  return path.toLowerCase().split('/').filter(Boolean);
+}
+
+const isLanguageSegment = (segment: string, language: string | undefined): boolean =>
+  !!language && /^[a-z]{2,3}(-[a-z0-9]{2,4})?$/.test(segment) && toLanguageCode(segment) === toLanguageCode(language);
+
+// The page's path as the owner thinks of it: lower case, decoded, without the free Wix
+// site-name prefix or a leading language folder, and without a trailing slash.
+function sitePath(segments: string[], siteSlug: string | null, language: string | undefined): string {
+  let rest = segments;
+  if (siteSlug && rest[0] === siteSlug) rest = rest.slice(1);
+  if (rest[0] && isLanguageSegment(rest[0], language)) rest = rest.slice(1);
+  return `/${rest.join('/')}`;
 }
 
 function targetPatterns(targetPaths: string): string[] {
@@ -26,15 +60,32 @@ function targetPatterns(targetPaths: string): string[] {
 // Whether at least one page has actually been entered.
 export const hasTargetPaths = (targetPaths: string): boolean => targetPatterns(targetPaths).length > 0;
 
-// True if the given pathname is covered by any of the target patterns.
-export function matchesTargetPaths(pathname: string, targetPaths: string): boolean {
-  const current = normalizePath(pathname);
+// Tidies one typed page into a path, e.g. "https://site.com/Shop/" -> "/shop". Keeps a
+// trailing "/*" (everything under the page) and leaves an empty entry empty.
+export function normalizeTargetPath(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  const wildcard = /\/\*$/.test(trimmed);
+  const segments = pathSegments(wildcard ? trimmed.slice(0, -2) : trimmed);
+  const path = `/${segments.join('/')}`;
+  return wildcard ? `${path === '/' ? '' : path}/*` : path;
+}
+
+// True if the given pathname is covered by any of the target patterns, e.g. "/shop" or
+// "/shop/*" for everything under it. Case, URL escapes, trailing slashes, the free Wix
+// site-name prefix and a leading language folder ("/fr/shop") are all ignored.
+export function matchesTargetPaths(pathname: string, targetPaths: string, context: PageContext = {}): boolean {
+  const currentSegments = pathSegments(pathname);
+  const siteSlug = context.hostname && FREE_WIX_HOST.test(context.hostname) ? currentSegments[0] ?? null : null;
+  const current = sitePath(currentSegments, siteSlug, context.language);
+
   return targetPatterns(targetPaths).some((raw) => {
-    if (raw.endsWith('/*')) {
-      const prefix = normalizePath(raw.slice(0, -2));
-      return current === prefix || current.startsWith(`${prefix === '/' ? '' : prefix}/`);
+    const wildcard = /\/\*$/.test(raw);
+    const pattern = sitePath(pathSegments(wildcard ? raw.slice(0, -2) : raw), siteSlug, context.language);
+    if (wildcard) {
+      return current === pattern || current.startsWith(`${pattern === '/' ? '' : pattern}/`);
     }
-    return current === normalizePath(raw);
+    return current === pattern;
   });
 }
 
@@ -71,6 +122,10 @@ export function redirectUrlIssue(value: string): string | null {
 
 // "pt-BR", "pt_br" and "PT" all become "pt": matching is on the primary language only.
 export const toLanguageCode = (value: string): string => value.trim().toLowerCase().split(/[-_]/)[0]!.slice(0, 3);
+
+// How much of the page shows behind the popup: dimmed, blurred, or hidden completely.
+export const BACKDROPS = ['dim', 'blur', 'solid'] as const;
+export type Backdrop = (typeof BACKDROPS)[number];
 
 // Days a visitor stays verified. 0 means only for the current browser session.
 export const MAX_VERIFICATION_DAYS = 3650;
@@ -130,6 +185,12 @@ export interface AgeGateSettings {
   translations: Translation[];
   // Raw CSS injected into the popup's shadow root, after the built-in styles (Pro).
   customCss: string;
+  // Shown instead of the popup when a visitor doesn't meet the minimum age. Empty uses the
+  // built-in text in the visitor's language.
+  restrictedHeadingText: string;
+  restrictedBodyText: string;
+  // How much of the site shows through behind the popup.
+  backdrop: Backdrop;
 }
 
 export interface Translation {
@@ -140,6 +201,8 @@ export interface Translation {
   yesButtonText: string;
   noButtonText: string;
   footerText: string;
+  restrictedHeadingText: string;
+  restrictedBodyText: string;
 }
 
 export const EMPTY_TRANSLATION: Translation = {
@@ -149,7 +212,12 @@ export const EMPTY_TRANSLATION: Translation = {
   yesButtonText: '',
   noButtonText: '',
   footerText: '',
+  restrictedHeadingText: '',
+  restrictedBodyText: '',
 };
+
+// Longest custom CSS accepted, so the saved settings stay a sensible size.
+export const MAX_CUSTOM_CSS_LENGTH = 10000;
 
 export const DEFAULT_SETTINGS: AgeGateSettings = {
   enabled: true,
@@ -188,6 +256,9 @@ export const DEFAULT_SETTINGS: AgeGateSettings = {
   buttonBorderRadius: 8,
   translations: [],
   customCss: '',
+  restrictedHeadingText: '',
+  restrictedBodyText: '',
+  backdrop: 'blur',
 };
 
 function pick<T extends readonly string[]>(allowed: T, value: unknown, fallback: T[number]): T[number] {
@@ -213,6 +284,8 @@ function normalizeTranslations(value: unknown): Translation[] {
       yesButtonText: text(item.yesButtonText, ''),
       noButtonText: text(item.noButtonText, ''),
       footerText: text(item.footerText, ''),
+      restrictedHeadingText: text(item.restrictedHeadingText, ''),
+      restrictedBodyText: text(item.restrictedBodyText, ''),
     }))
     .filter((t) => t.code);
 }
@@ -223,7 +296,9 @@ export function normalizeSettings(row: Record<string, unknown> | null | undefine
   const r = row ?? {};
   return {
     enabled: typeof r.enabled === 'boolean' ? r.enabled : d.enabled,
-    previewMode: typeof r.previewMode === 'boolean' ? r.previewMode : d.previewMode,
+    // Settings saved before testing mode existed never had it on, so a missing value means
+    // off here -- only a site that has never saved starts in testing mode (DEFAULT_SETTINGS).
+    previewMode: typeof r.previewMode === 'boolean' ? r.previewMode : false,
     reviewPrompted: typeof r.reviewPrompted === 'boolean' ? r.reviewPrompted : d.reviewPrompted,
     minimumAge: num(r.minimumAge, d.minimumAge),
     verificationMethod: pick(VERIFICATION_METHODS, r.verificationMethod, d.verificationMethod),
@@ -251,7 +326,46 @@ export function normalizeSettings(row: Record<string, unknown> | null | undefine
     buttonBorderRadius: num(r.buttonBorderRadius, d.buttonBorderRadius),
     translations: normalizeTranslations(r.translations),
     customCss: text(r.customCss, d.customCss),
+    restrictedHeadingText: text(r.restrictedHeadingText, d.restrictedHeadingText),
+    restrictedBodyText: text(r.restrictedBodyText, d.restrictedBodyText),
+    // Sites saved before this option existed keep the dimmed look they already had.
+    backdrop: pick(BACKDROPS, r.backdrop, 'dim'),
   };
+}
+
+// The same settings with every Pro-only option put back to its Free value. Used when a
+// Free site saves, and to switch Pro options off after a site leaves the Pro plan.
+export function stripProFeatures(settings: AgeGateSettings): AgeGateSettings {
+  return {
+    ...settings,
+    verificationMethod: settings.verificationMethod === 'dob' ? 'button' : settings.verificationMethod,
+    theme: isProTheme(settings.theme) ? 'minimal' : settings.theme,
+    pageTargeting: 'all',
+    targetPaths: '',
+    translations: [],
+    customCss: '',
+    logoUrl: '',
+    popupBackgroundColor: '',
+    accentColor: '',
+    noButtonColor: '',
+    buttonBorderRadius: DEFAULT_SETTINGS.buttonBorderRadius,
+  };
+}
+
+// Whether any Pro-only option is in use.
+export const usesProFeatures = (settings: AgeGateSettings): boolean =>
+  JSON.stringify(stripProFeatures(settings)) !== JSON.stringify(settings);
+
+// A plain-language problem with the translations, or null if they're fine to save.
+export function translationsIssue(translations: Translation[]): string | null {
+  const seen = new Set<string>();
+  for (const translation of translations) {
+    const code = toLanguageCode(translation.code);
+    if (!code) return 'Choose a language for each language you added, or remove it.';
+    if (seen.has(code)) return `The same language ("${code}") is added twice. Remove one of them.`;
+    seen.add(code);
+  }
+  return null;
 }
 
 // Overrides the gate's text with a visitor's current-language translation, if one is
@@ -272,6 +386,8 @@ export function resolveLocalizedSettings(
     yesButtonText: translation.yesButtonText || settings.yesButtonText,
     noButtonText: translation.noButtonText || settings.noButtonText,
     footerText: translation.footerText || settings.footerText,
+    restrictedHeadingText: translation.restrictedHeadingText || settings.restrictedHeadingText,
+    restrictedBodyText: translation.restrictedBodyText || settings.restrictedBodyText,
   };
 }
 
