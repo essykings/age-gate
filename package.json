@@ -12,7 +12,8 @@
     "release": "wix release",
     "generate": "wix generate",
     "skills": "wix skills",
-    "typecheck": "astro check"
+    "typecheck": "astro check",
+    "test": "vitest run"
   },
   "dependencies": {
     "@emnapi/runtime": "^1.11.3",
@@ -34,6 +35,7 @@
     "@wix/cli": "^1.1.135",
     "@wix/sdk-types": "^1.0.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "vitest": "^3.2.7"
   }
 }
