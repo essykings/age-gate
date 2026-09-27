@@ -144,6 +144,8 @@ describe('stored settings', () => {
     const old = normalizeSettings({ enabled: true, minimumAge: 18 });
     expect(old.previewMode).toBe(false);
     expect(old.backdrop).toBe('dim');
+    // The removed "hidden completely" option becomes blurred.
+    expect(normalizeSettings({ backdrop: 'solid' }).backdrop).toBe('blur');
   });
 });
 

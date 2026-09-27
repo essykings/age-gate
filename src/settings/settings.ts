@@ -126,8 +126,8 @@ export function redirectUrlIssue(value: string): string | null {
 }
 
 
-// How much of the page shows behind the popup: dimmed, blurred, or hidden completely.
-export const BACKDROPS = ['dim', 'blur', 'solid'] as const;
+// How the page behind the popup looks: dimmed or blurred.
+export const BACKDROPS = ['dim', 'blur'] as const;
 export type Backdrop = (typeof BACKDROPS)[number];
 
 // Days a visitor stays verified. 0 means only for the current browser session.
@@ -332,7 +332,8 @@ export function normalizeSettings(row: Record<string, unknown> | null | undefine
     restrictedHeadingText: text(r.restrictedHeadingText, d.restrictedHeadingText),
     restrictedBodyText: text(r.restrictedBodyText, d.restrictedBodyText),
     // Sites saved before this option existed keep the dimmed look they already had.
-    backdrop: pick(BACKDROPS, r.backdrop, 'dim'),
+    // "solid" (hidden completely) was removed; its closest remaining look is blurred.
+    backdrop: r.backdrop === 'solid' ? 'blur' : pick(BACKDROPS, r.backdrop, 'dim'),
   };
 }
 

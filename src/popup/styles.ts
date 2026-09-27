@@ -108,9 +108,6 @@ button, input {
   backdrop-filter: blur(14px);
 }
 
-.overlay.backdrop-solid {
-  background: #0d0d10;
-}
 @media (max-width: 480px) {
   .container {
     padding: 28px 20px;

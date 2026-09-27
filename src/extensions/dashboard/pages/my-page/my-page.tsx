@@ -98,7 +98,6 @@ type GateStatus =
 const BACKDROP_LABELS: Record<Backdrop, string> = {
   dim: 'Dimmed',
   blur: 'Blurred',
-  solid: 'Hidden completely',
 };
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
