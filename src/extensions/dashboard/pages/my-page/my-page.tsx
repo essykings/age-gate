@@ -394,7 +394,7 @@ const DashboardPage: FC = () => {
       <div style={inputBorderVars}>
       <Page maxWidth={1240}>
         <Page.Header
-          title="Age Gate Settings"
+          title="Age Verification Pro"
           subtitle="Set up the age verification popup shown to visitors across your whole site."
           actionsBar={
             <Box gap="SP2" verticalAlign="middle">
