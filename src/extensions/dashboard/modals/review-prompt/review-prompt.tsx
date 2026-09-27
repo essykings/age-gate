@@ -38,9 +38,17 @@ const Modal: FC = () => {
         display: 'flex',
         flexDirection: 'column',
         gap: '10px',
+        // Wix shows this page inside its own modal frame, which has no background of its
+        // own -- without this the dashboard behind shows straight through the text.
+        background: '#ffffff',
+        borderRadius: '12px',
+        minHeight: '100vh',
+        boxSizing: 'border-box',
       }}
     >
-      <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#000624' }}>Enjoying the age gate?</h2>
+      {/* The browser's default 8px page margin would leave a see-through gap around the card. */}
+      <style>{'html, body { margin: 0; background: transparent; }'}</style>
+      <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#000624' }}>Enjoying Age Verification Pro?</h2>
       <p style={{ margin: '0 0 8px 0', fontSize: '14px', lineHeight: 1.5, color: '#5c5f6a' }}>
         Mind leaving a quick review? It really helps other site owners find the app. It opens in a new tab.
       </p>
