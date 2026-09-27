@@ -153,7 +153,10 @@ export const EMPTY_TRANSLATION: Translation = {
 
 export const DEFAULT_SETTINGS: AgeGateSettings = {
   enabled: true,
-  previewMode: false,
+  // Defaults on so a new owner sees the gate reappear while they're testing, instead of
+  // wondering why it "stopped working" after they click Yes once. The warning banner (see
+  // my-page.tsx) reminds them to turn it off before real visitors arrive.
+  previewMode: true,
   reviewPrompted: false,
   minimumAge: 21,
   verificationMethod: 'button',
