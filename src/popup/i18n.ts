@@ -1,4 +1,4 @@
-import { toLanguageCode } from '../settings/settings';
+import { toLanguageCode } from '../settings/language';
 
 // Built-in wording for every piece of the popup the site owner doesn't type themselves,
 // plus the defaults used when they leave a text field blank. Picked by the language the
@@ -195,6 +195,10 @@ const STRINGS: Record<string, UiStrings> = {
 
 // Languages with built-in wording, e.g. for the dashboard to mention.
 export const BUILT_IN_LANGUAGES = Object.keys(STRINGS);
+
+// Whether there's built-in wording for this language (otherwise English is used).
+export const hasBuiltInWording = (language: string | null | undefined): boolean =>
+  !!language && Object.prototype.hasOwnProperty.call(STRINGS, toLanguageCode(language));
 
 export function uiStrings(language: string | null | undefined): UiStrings {
   const code = language ? toLanguageCode(language) : '';

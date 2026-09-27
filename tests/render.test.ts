@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildPopup, buildRestrictedHtml, todayISO } from '../src/popup/render';
 import { uiStrings } from '../src/popup/i18n';
-import { DEFAULT_SETTINGS, type AgeGateSettings } from '../src/settings/settings';
+import { DEFAULT_SETTINGS, resolveLocalizedSettings, type AgeGateSettings } from '../src/settings/settings';
 
 const base: AgeGateSettings = { ...DEFAULT_SETTINGS, previewMode: false, minimumAge: 18 };
 
@@ -34,6 +34,22 @@ describe('buildPopup', () => {
 
   it('shows the testing note in the visitor language', () => {
     expect(buildPopup({ ...base, previewMode: true }, 'es').html).toContain(uiStrings('es').testingNote);
+  });
+});
+
+describe('added languages', () => {
+  it('shows a fully German popup when the German fields are empty, even if the main text is French', () => {
+    const settings: AgeGateSettings = {
+      ...base,
+      headingText: 'Avez-vous 18 ans ou plus ?',
+      yesButtonText: 'Oui',
+      translations: [{ code: 'de', headingText: '', bodyText: '', yesButtonText: '', noButtonText: '', footerText: '', restrictedHeadingText: '', restrictedBodyText: '' }],
+    };
+    const { html } = buildPopup(resolveLocalizedSettings(settings, 'de'), 'de');
+    expect(html).toContain('Sind Sie 18 Jahre oder älter?');
+    expect(html).toContain('Ja, ich bin 18 oder älter');
+    expect(html).not.toContain('Avez-vous');
+    expect(html).not.toContain('>Oui<');
   });
 });
 

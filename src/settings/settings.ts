@@ -1,3 +1,8 @@
+import { hasBuiltInWording } from '../popup/i18n';
+import { toLanguageCode } from './language';
+
+export { toLanguageCode };
+
 export const THEMES = ['minimal', 'noir', 'amber', 'blossom', 'garden', 'sunset'] as const;
 export type Theme = (typeof THEMES)[number];
 
@@ -120,8 +125,6 @@ export function redirectUrlIssue(value: string): string | null {
   }
 }
 
-// "pt-BR", "pt_br" and "PT" all become "pt": matching is on the primary language only.
-export const toLanguageCode = (value: string): string => value.trim().toLowerCase().split(/[-_]/)[0]!.slice(0, 3);
 
 // How much of the page shows behind the popup: dimmed, blurred, or hidden completely.
 export const BACKDROPS = ['dim', 'blur', 'solid'] as const;
@@ -369,7 +372,10 @@ export function translationsIssue(translations: Translation[]): string | null {
 }
 
 // Overrides the gate's text with a visitor's current-language translation, if one is
-// saved for it. Missing fields in that translation fall back to the main text above.
+// saved for it. A field left empty in that translation uses the built-in wording in that
+// language (by leaving it empty for buildPopup), so the popup never mixes languages; only
+// languages without built-in wording fall back to the main text. The footer has no
+// built-in wording, so it always falls back to the main footer rather than disappearing.
 export function resolveLocalizedSettings(
   settings: AgeGateSettings,
   languageCode: string | null | undefined,
@@ -379,15 +385,17 @@ export function resolveLocalizedSettings(
   if (!code) return settings;
   const translation = settings.translations.find((t) => t.code === code);
   if (!translation) return settings;
+  const builtIn = hasBuiltInWording(code);
+  const text = (own: string, main: string) => own || (builtIn ? '' : main);
   return {
     ...settings,
-    headingText: translation.headingText || settings.headingText,
-    bodyText: translation.bodyText || settings.bodyText,
-    yesButtonText: translation.yesButtonText || settings.yesButtonText,
-    noButtonText: translation.noButtonText || settings.noButtonText,
+    headingText: text(translation.headingText, settings.headingText),
+    bodyText: text(translation.bodyText, settings.bodyText),
+    yesButtonText: text(translation.yesButtonText, settings.yesButtonText),
+    noButtonText: text(translation.noButtonText, settings.noButtonText),
     footerText: translation.footerText || settings.footerText,
-    restrictedHeadingText: translation.restrictedHeadingText || settings.restrictedHeadingText,
-    restrictedBodyText: translation.restrictedBodyText || settings.restrictedBodyText,
+    restrictedHeadingText: text(translation.restrictedHeadingText, settings.restrictedHeadingText),
+    restrictedBodyText: text(translation.restrictedBodyText, settings.restrictedBodyText),
   };
 }
 

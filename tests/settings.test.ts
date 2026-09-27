@@ -94,9 +94,28 @@ describe('translations', () => {
     };
     const french = resolveLocalizedSettings(settings, 'fr-FR');
     expect(french.headingText).toBe('Titre');
-    expect(french.bodyText).toBe('Main body');
     expect(french.restrictedHeadingText).toBe('Accès refusé');
+    // Empty in a language with built-in wording: left empty so the popup uses French
+    // built-in wording, never the (possibly other-language) main text.
+    expect(french.bodyText).toBe('');
+    // No translation for German at all: the main text is used.
     expect(resolveLocalizedSettings(settings, 'de').headingText).toBe('Main heading');
+  });
+
+  it('falls back to the main text for languages without built-in wording, and always for the footer', () => {
+    const settings: AgeGateSettings = {
+      ...DEFAULT_SETTINGS,
+      bodyText: 'Main body',
+      footerText: 'Legal small print',
+      translations: [
+        { ...EMPTY_TRANSLATION, code: 'pl', headingText: 'Czy masz 18 lat?' },
+        { ...EMPTY_TRANSLATION, code: 'de' },
+      ],
+    };
+    const polish = resolveLocalizedSettings(settings, 'pl');
+    expect(polish.headingText).toBe('Czy masz 18 lat?');
+    expect(polish.bodyText).toBe('Main body');
+    expect(resolveLocalizedSettings(settings, 'de').footerText).toBe('Legal small print');
   });
 
   it('reports missing and duplicate codes', () => {

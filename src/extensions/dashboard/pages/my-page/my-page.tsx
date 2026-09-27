@@ -50,7 +50,8 @@ import {
 import { PopupPreview } from './popup-preview';
 import { contrastIssues } from '../../../../settings/color';
 import { fetchPlanInfo, getUpgradeUrl, type PlanInfo } from '../../../../settings/plan';
-import { uiStrings } from '../../../../popup/i18n';
+import { hasBuiltInWording, uiStrings } from '../../../../popup/i18n';
+import { isSegmentedDobTheme } from '../../../../popup/render';
 import { LANGUAGE_NAMES, languageName } from './languages';
 
 // The review-prompt Dashboard Modal's extension id (see review-prompt.extension.ts).
@@ -841,14 +842,8 @@ const DashboardPage: FC = () => {
                         <Box direction="vertical" gap="SP1">
                           <Text weight="bold">Other languages</Text>
                           <Text size="small" secondary>
-                            Your popup text in the Text section above is shown to every visitor. If your site is in
-                            more than one language, add a language here and type the popup text for it — visitors
-                            viewing your site in that language will see it instead.
-                          </Text>
-                          <Text size="small" secondary>
-                            <strong>We don't translate your text automatically.</strong> Anything you leave empty here
-                            uses your main text, or our built-in wording if that's empty too (built-in wording is
-                            available in English, French, Spanish, German, Italian, Portuguese and Dutch).
+                            Add a language to show visitors the popup in their language. Leave a field empty to use
+                            our ready-made wording (shown in grey), or type your own.
                           </Text>
                           {translationsIssue(settings.translations) && (
                             <Text size="small" skin="error">
@@ -863,22 +858,31 @@ const DashboardPage: FC = () => {
                         // Typed code: chosen "Other", or a saved code that isn't in the list.
                         const typingCode = otherLanguageRows.includes(index) || (!!code && !LANGUAGE_NAMES[code]);
                         const usedElsewhere = new Set(settings.translations.filter((_, i) => i !== index).map((t) => t.code));
+                        // What visitors get if a field is left empty (see resolveLocalizedSettings):
+                        // built-in wording in this language when there is some, else the main text.
                         const builtIn = uiStrings(code);
+                        const hasBuiltIn = hasBuiltInWording(code);
+                        const fallback = (main: string, wording: string) => (hasBuiltIn ? wording : main || wording);
+                        const age = settings.minimumAge;
+                        const segmented = isSegmentedDobTheme(settings.theme);
+                        const isDob = settings.verificationMethod === 'dob';
+                        const defaultHeading = isDob ? (segmented ? builtIn.segmentedHeading : builtIn.dobHeading) : builtIn.heading(age);
+                        const defaultBody = isDob && segmented ? builtIn.segmentedBody : builtIn.body;
                         const fields: { key: keyof Translation; label: string; placeholder: string }[] = [
-                          { key: 'headingText', label: 'Heading', placeholder: settings.headingText || builtIn.heading(settings.minimumAge) },
-                          { key: 'bodyText', label: 'Body text', placeholder: settings.bodyText || builtIn.body },
-                          { key: 'yesButtonText', label: 'Yes button', placeholder: settings.yesButtonText || builtIn.yes(settings.minimumAge) },
-                          { key: 'noButtonText', label: 'No button', placeholder: settings.noButtonText || builtIn.no(settings.minimumAge) },
+                          { key: 'headingText', label: 'Heading', placeholder: fallback(settings.headingText, defaultHeading) },
+                          { key: 'bodyText', label: 'Body text', placeholder: fallback(settings.bodyText, defaultBody) },
+                          { key: 'yesButtonText', label: 'Yes button', placeholder: fallback(settings.yesButtonText, builtIn.yes(age)) },
+                          { key: 'noButtonText', label: 'No button', placeholder: fallback(settings.noButtonText, builtIn.no(age)) },
                           { key: 'footerText', label: 'Footer', placeholder: settings.footerText || 'No footer' },
                           {
                             key: 'restrictedHeadingText',
                             label: '"Access Restricted" heading',
-                            placeholder: settings.restrictedHeadingText || builtIn.restrictedHeading,
+                            placeholder: fallback(settings.restrictedHeadingText, builtIn.restrictedHeading),
                           },
                           {
                             key: 'restrictedBodyText',
                             label: '"Access Restricted" message',
-                            placeholder: settings.restrictedBodyText || builtIn.restrictedBody(settings.minimumAge),
+                            placeholder: fallback(settings.restrictedBodyText, builtIn.restrictedBody(age)),
                           },
                         ];
                         return (
