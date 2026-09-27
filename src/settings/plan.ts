@@ -13,6 +13,8 @@ export interface PlanInfo {
   isPro: boolean;
   packageName: string | null;
   instanceId: string | null;
+  // The site's main language (e.g. "fr"), or null if unknown.
+  siteLanguage: string | null;
 }
 
 // Only call this from the dashboard or editor panel, which share the app's origin.
@@ -37,11 +39,12 @@ export async function fetchPlanInfo(): Promise<PlanInfo> {
       isPro: !isFree && packageName?.toLowerCase() === PRO_PACKAGE_NAME,
       packageName,
       instanceId: instance.instanceId,
+      siteLanguage: typeof data.siteLanguage === 'string' && data.siteLanguage ? data.siteLanguage : null,
     };
   } catch (error) {
     console.error('Could not determine Wix plan:', error);
     // Don't grant paid features if the plan can't be confirmed.
-    return { status: 'unknown', isPaid: false, isPro: false, packageName: null, instanceId: null };
+    return { status: 'unknown', isPaid: false, isPro: false, packageName: null, instanceId: null, siteLanguage: null };
   }
 }
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties, type FC } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type FC } from 'react';
 import { dashboard } from '@wix/dashboard';
 import { embeddedScripts } from '@wix/app-management';
 import {
@@ -25,17 +25,23 @@ import '@wix/design-system/styles.global.css';
 import {
   DEFAULT_SETTINGS,
   decodeConfig,
+  BACKDROPS,
   EMPTY_TRANSLATION,
   encodeConfig,
-  isProTheme,
+  MAX_CUSTOM_CSS_LENGTH,
   MAX_VERIFICATION_DAYS,
   normalizeRedirectUrl,
+  normalizeTargetPath,
   PAGE_TARGETING_MODES,
   hasTargetPaths,
   redirectUrlIssue,
   resolveLocalizedSettings,
+  stripProFeatures,
   toLanguageCode,
+  translationsIssue,
+  usesProFeatures,
   type AgeGateSettings,
+  type Backdrop,
   type PageTargetingMode,
   type Theme,
   type Translation,
@@ -44,6 +50,8 @@ import {
 import { PopupPreview } from './popup-preview';
 import { contrastIssues } from '../../../../settings/color';
 import { fetchPlanInfo, getUpgradeUrl, type PlanInfo } from '../../../../settings/plan';
+import { uiStrings } from '../../../../popup/i18n';
+import { LANGUAGE_NAMES, languageName } from './languages';
 
 // The review-prompt Dashboard Modal's extension id (see review-prompt.extension.ts).
 const REVIEW_PROMPT_MODAL_ID = 'f5435726-b327-45d2-b53a-fd32939aef40';
@@ -86,6 +94,12 @@ type GateStatus =
   | { kind: 'notSetUp' }
   | { kind: 'error'; message: string };
 
+const BACKDROP_LABELS: Record<Backdrop, string> = {
+  dim: 'Dimmed',
+  blur: 'Blurred',
+  solid: 'Hidden completely',
+};
+
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 // Wix returns a 404 when the script has never been embedded on this site.
@@ -104,6 +118,17 @@ const DashboardPage: FC = () => {
   const [showProModal, setShowProModal] = useState(false);
   // '' previews the default (main-language) text; otherwise a saved translation's code.
   const [previewLanguage, setPreviewLanguage] = useState('');
+  // Rows in "Other languages" where the owner picked "Other" and types a code themselves.
+  const [otherLanguageRows, setOtherLanguageRows] = useState<number[]>([]);
+  // The preview can show the question or the "Access Restricted" screen.
+  const [previewScreen, setPreviewScreen] = useState<'popup' | 'restricted'>('popup');
+  // Set when Pro options were switched off on the site because it's no longer on Pro.
+  const [proSwitchedOff, setProSwitchedOff] = useState(false);
+  // Whether Wix currently has the script switched off, as loaded (see the refresh below).
+  const scriptDisabled = useRef(false);
+  // Only a site with real saved settings is refreshed; defaults are never pushed on its behalf.
+  const hasSavedConfig = useRef(false);
+  const refreshed = useRef(false);
 
   // Edits that haven't been saved yet (drives the "leave without saving?" warning).
   const dirty = JSON.stringify(settings) !== JSON.stringify(savedSettings);
@@ -128,6 +153,8 @@ const DashboardPage: FC = () => {
           setSavedSettings(stored);
         }
         // On only when Wix's flag and the saved "show the age gate" setting agree.
+        scriptDisabled.current = !!script.disabled;
+        hasSavedConfig.current = stored !== null;
         setGateStatus({ kind: !script.disabled && stored?.enabled ? 'live' : 'off' });
       } catch (error) {
         setGateStatus(isNotFound(error) ? { kind: 'notSetUp' } : { kind: 'error', message: errorMessage(error) });
@@ -144,6 +171,16 @@ const DashboardPage: FC = () => {
     const { remove } = dashboard.onBeforeUnload((event) => event.preventDefault());
     return remove;
   }, [dirty]);
+
+  // Escape closes the "Upgrade to Premium" box.
+  useEffect(() => {
+    if (!showProModal) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowProModal(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showProModal]);
 
   const update = useCallback(
     <K extends keyof AgeGateSettings>(key: K, value: AgeGateSettings[K]) =>
@@ -191,11 +228,42 @@ const DashboardPage: FC = () => {
     update('translations', next);
   };
 
-  const removeTranslation = (index: number) =>
+  const removeTranslation = (index: number) => {
     update('translations', settings.translations.filter((_, i) => i !== index));
+    // Rows after the removed one move up by one.
+    setOtherLanguageRows((rows) => rows.filter((row) => row !== index).map((row) => (row > index ? row - 1 : row)));
+  };
 
   const isPro = plan?.isPro ?? false;
   const planKnown = plan !== null && plan.status !== 'unknown';
+  // Built-in wording in the site's main language, for placeholders and the preview.
+  const siteLanguage = plan?.siteLanguage ?? null;
+  const strings = uiStrings(siteLanguage);
+
+  // Re-saves the site's current settings once per visit to this page, for two reasons:
+  // - A site keeps serving the version of the gate script it had the last time the script
+  //   was embedded; releasing a new app version doesn't update it. Re-embedding picks up
+  //   the latest script without the owner having to press Save.
+  // - The script on the site never checks the plan, so a site that left Pro would keep
+  //   its Pro options. Once the plan is confirmed not to be Pro, they're switched off here.
+  // Only for sites that have saved before, and Wix's on/off state is left exactly as it was.
+  useEffect(() => {
+    if (loading || refreshed.current || !hasSavedConfig.current) return;
+    if (gateStatus.kind !== 'live' && gateStatus.kind !== 'off') return;
+    refreshed.current = true;
+    const stripPro = planKnown && !isPro && usesProFeatures(savedSettings);
+    const current = stripPro ? stripProFeatures(savedSettings) : savedSettings;
+    embeddedScripts
+      .embedScript({ parameters: { config: encodeConfig(current) }, disabled: scriptDisabled.current })
+      .then(() => {
+        if (!stripPro) return;
+        setSavedSettings(current);
+        // Keep any edits in progress, minus the Pro options.
+        setSettings((edits) => stripProFeatures(edits));
+        setProSwitchedOff(true);
+      })
+      .catch((error) => console.error('Could not refresh the age gate on the site:', error));
+  }, [loading, planKnown, isPro, gateStatus.kind, savedSettings]);
   // Shown in the header for Pro sites, e.g. "pro" -> "Pro".
   const planName = plan?.packageName ? plan.packageName.charAt(0).toUpperCase() + plan.packageName.slice(1) : 'Pro';
 
@@ -224,25 +292,16 @@ const DashboardPage: FC = () => {
       dashboard.showToast({ message: `Fix the Redirect URL before saving. ${redirectProblem}`, type: 'error' });
       return;
     }
+    const translationProblem = translationsIssue(current.translations);
+    if (translationProblem) {
+      dashboard.showToast({ message: `Fix "Other languages" before saving. ${translationProblem}`, type: 'error' });
+      return;
+    }
+    current.targetPaths = current.targetPaths.split('\n').map(normalizeTargetPath).filter(Boolean).join('\n');
 
     // Free plans can't keep Pro options, even if they were saved before a downgrade. If the
     // plan couldn't be determined we keep everything as-is rather than wipe a Pro owner's setup.
-    const toSave: AgeGateSettings = isPro || !planKnown
-      ? current
-      : {
-          ...current,
-          verificationMethod: current.verificationMethod === 'dob' ? 'button' : current.verificationMethod,
-          theme: isProTheme(current.theme) ? 'minimal' : current.theme,
-          pageTargeting: 'all',
-          targetPaths: '',
-          translations: [],
-          customCss: '',
-          logoUrl: '',
-          popupBackgroundColor: '',
-          accentColor: '',
-          noButtonColor: '',
-          buttonBorderRadius: DEFAULT_SETTINGS.buttonBorderRadius,
-        };
+    const toSave: AgeGateSettings = isPro || !planKnown ? current : stripProFeatures(current);
 
     // Ask for a review at most once, right after the gate first goes live — a "happy
     // moment", not a random save. Flipping the flag here saves it in this same request.
@@ -297,7 +356,15 @@ const DashboardPage: FC = () => {
 
   const textField = (
     label: string,
-    key: 'headingText' | 'bodyText' | 'yesButtonText' | 'noButtonText' | 'redirectUrl' | 'footerText',
+    key:
+      | 'headingText'
+      | 'bodyText'
+      | 'yesButtonText'
+      | 'noButtonText'
+      | 'redirectUrl'
+      | 'footerText'
+      | 'restrictedHeadingText'
+      | 'restrictedBodyText',
     placeholder?: string,
     infoContent?: string,
   ) => (
@@ -426,9 +493,20 @@ const DashboardPage: FC = () => {
             <Layout gap="24px">
               <Cell>
                 <Box direction="vertical" gap="SP2">
-                {gateStatus.kind === 'live' && (
+                {gateStatus.kind === 'live' && !dirty && (
                   <SectionHelper appearance="success" fullWidth title="Age gate is switched on">
                     Your settings are saved. Open your published site to see the age gate.
+                  </SectionHelper>
+                )}
+                {gateStatus.kind === 'live' && dirty && (
+                  <SectionHelper appearance="standard" fullWidth title="You have unsaved changes">
+                    Your site still shows the last saved version. Click Save to update it.
+                  </SectionHelper>
+                )}
+                {proSwitchedOff && (
+                  <SectionHelper appearance="warning" fullWidth title="Pro options switched off">
+                    This site isn't on the Pro plan, so its Pro options (themes, page targeting, other languages,
+                    custom CSS and branding) were turned off on your site. Upgrade to turn them back on.
                   </SectionHelper>
                 )}
                 {gateStatus.kind === 'off' && (
@@ -529,6 +607,19 @@ const DashboardPage: FC = () => {
                           'How many days a visitor stays verified. Use 0 to ask again each browser session.',
                         )}
                       </Cell>
+                      <Cell span={6}>
+                        <FormField
+                          label="Page behind the popup"
+                          infoContent="How much of your site visitors can see before they confirm their age."
+                        >
+                          <Dropdown
+                            selectedId={settings.backdrop}
+                            options={BACKDROPS.map((id) => ({ id, value: BACKDROP_LABELS[id] }))}
+                            onSelect={(option) => update('backdrop', option.id as Backdrop)}
+                            aria-label="Page behind the popup"
+                          />
+                        </FormField>
+                      </Cell>
                       <Cell span={12}>
                         <FormField
                           label="Redirect URL"
@@ -558,19 +649,33 @@ const DashboardPage: FC = () => {
                 <Layout gap="24px">
                   <Cell span={6}>
                     <Card>
-                      <Card.Header title="Text" />
+                      <Card.Header
+                        title="Text"
+                        subtitle="Shown to every visitor. Leave a field empty to use built-in wording in the visitor's language."
+                      />
                       <Card.Divider />
                       <Card.Content>
                         <Layout gap="18px">
                           <Cell span={12}>
                             {textField('Heading text', 'headingText', undefined, 'Leave blank to generate one from the minimum age and method.')}
                           </Cell>
-                          <Cell span={12}>{textField('Body text', 'bodyText', 'You must confirm your age to view this site.')}</Cell>
-                          <Cell span={12}>{textField('Yes button text', 'yesButtonText', `Yes, I am ${settings.minimumAge}+`)}</Cell>
+                          <Cell span={12}>{textField('Body text', 'bodyText', strings.body)}</Cell>
+                          <Cell span={12}>{textField('Yes button text', 'yesButtonText', strings.yes(settings.minimumAge))}</Cell>
                           <Cell span={12}>
                             {textField('Footer text', 'footerText', 'e.g. By entering this site you confirm you are of legal age.', 'Small print shown under the buttons. Leave blank for none.')}
                           </Cell>
-                          <Cell span={12}>{textField('No button text', 'noButtonText', `No, I am under ${settings.minimumAge}`)}</Cell>
+                          <Cell span={12}>{textField('No button text', 'noButtonText', strings.no(settings.minimumAge))}</Cell>
+                          <Cell span={12}>
+                            {textField(
+                              '"Access Restricted" heading',
+                              'restrictedHeadingText',
+                              strings.restrictedHeading,
+                              "Shown to visitors who don't meet the minimum age (unless you set a Redirect URL).",
+                            )}
+                          </Cell>
+                          <Cell span={12}>
+                            {textField('"Access Restricted" message', 'restrictedBodyText', strings.restrictedBody(settings.minimumAge))}
+                          </Cell>
                         </Layout>
                       </Card.Content>
                     </Card>
@@ -621,8 +726,8 @@ const DashboardPage: FC = () => {
                     title="Pro features"
                     subtitle={
                       isPro
-                        ? 'Themes, page targeting, translations, custom CSS, and branding.'
-                        : 'Unlock themes, page targeting, translations, custom CSS, and branding with the Pro plan.'
+                        ? 'Themes, page targeting, other languages, custom CSS, and branding.'
+                        : 'Unlock themes, page targeting, other languages, custom CSS, and branding with the Pro plan.'
                     }
                   />
                   <Card.Divider />
@@ -692,7 +797,7 @@ const DashboardPage: FC = () => {
                         <Cell span={12}>
                           <FormField
                             label="Pages"
-                            infoContent="Enter each page's path, e.g. /shop. Use /shop/* to include every page under it."
+                            infoContent="Enter each page's path, e.g. /shop, or paste its full address. Use /shop/* to include every page under it. Capital letters, your free Wix site name and language folders like /fr are handled for you."
                           >
                             <Box direction="vertical" gap="SP1">
                               {targetPathList.map((path, index) => (
@@ -701,6 +806,8 @@ const DashboardPage: FC = () => {
                                     <Input
                                       value={path}
                                       onChange={(event) => setTargetPath(index, event.target.value)}
+                                      // Tidies a pasted address into a path, e.g. "https://site.com/Shop/" -> "/shop".
+                                      onBlur={() => setTargetPath(index, normalizeTargetPath(path))}
                                       placeholder="/shop"
                                       disabled={!isPro}
                                       aria-label={`Page ${index + 1}`}
@@ -732,87 +839,125 @@ const DashboardPage: FC = () => {
                       )}
                       <Cell span={12}>
                         <Box direction="vertical" gap="SP1">
-                          <Text weight="bold">Translations</Text>
+                          <Text weight="bold">Other languages</Text>
                           <Text size="small" secondary>
-                            Override the popup's text based on the page's language — matches your site's language
-                            setting or Wix Multilingual, whichever the visitor is viewing.
+                            Your popup text in the Text section above is shown to every visitor. If your site is in
+                            more than one language, add a language here and type the popup text for it — visitors
+                            viewing your site in that language will see it instead.
                           </Text>
+                          <Text size="small" secondary>
+                            <strong>We don't translate your text automatically.</strong> Anything you leave empty here
+                            uses your main text, or our built-in wording if that's empty too (built-in wording is
+                            available in English, French, Spanish, German, Italian, Portuguese and Dutch).
+                          </Text>
+                          {translationsIssue(settings.translations) && (
+                            <Text size="small" skin="error">
+                              {translationsIssue(settings.translations)}
+                            </Text>
+                          )}
                         </Box>
                       </Cell>
-                      {settings.translations.map((translation, index) => (
-                        <Cell span={12} key={index}>
-                          <Box
-                            direction="vertical"
-                            gap="SP2"
-                            style={{ border: '1px solid #dfe5eb', borderRadius: '8px', padding: '16px' }}
-                          >
-                            <Box gap="SP2" verticalAlign="middle">
-                              <Box style={{ maxWidth: 120 }}>
-                                <FormField
-                                  label="Language code"
-                                  infoContent='2-letter language code, e.g. "es" for Spanish or "pt" for Portuguese (covers regional versions such as pt-BR).'
-                                >
-                                  <Input
-                                    value={translation.code}
-                                    onChange={(event) => updateTranslation(index, 'code', toLanguageCode(event.target.value))}
-                                    placeholder="es"
+                      {settings.translations.map((translation, index) => {
+                        const code = translation.code;
+                        const name = code ? languageName(code) : 'this language';
+                        // Typed code: chosen "Other", or a saved code that isn't in the list.
+                        const typingCode = otherLanguageRows.includes(index) || (!!code && !LANGUAGE_NAMES[code]);
+                        const usedElsewhere = new Set(settings.translations.filter((_, i) => i !== index).map((t) => t.code));
+                        const builtIn = uiStrings(code);
+                        const fields: { key: keyof Translation; label: string; placeholder: string }[] = [
+                          { key: 'headingText', label: 'Heading', placeholder: settings.headingText || builtIn.heading(settings.minimumAge) },
+                          { key: 'bodyText', label: 'Body text', placeholder: settings.bodyText || builtIn.body },
+                          { key: 'yesButtonText', label: 'Yes button', placeholder: settings.yesButtonText || builtIn.yes(settings.minimumAge) },
+                          { key: 'noButtonText', label: 'No button', placeholder: settings.noButtonText || builtIn.no(settings.minimumAge) },
+                          { key: 'footerText', label: 'Footer', placeholder: settings.footerText || 'No footer' },
+                          {
+                            key: 'restrictedHeadingText',
+                            label: '"Access Restricted" heading',
+                            placeholder: settings.restrictedHeadingText || builtIn.restrictedHeading,
+                          },
+                          {
+                            key: 'restrictedBodyText',
+                            label: '"Access Restricted" message',
+                            placeholder: settings.restrictedBodyText || builtIn.restrictedBody(settings.minimumAge),
+                          },
+                        ];
+                        return (
+                          <Cell span={12} key={index}>
+                            <Box
+                              direction="vertical"
+                              gap="SP2"
+                              style={{ border: '1px solid #dfe5eb', borderRadius: '8px', padding: '16px' }}
+                            >
+                              <Box gap="SP2" verticalAlign="bottom">
+                                <Box style={{ width: 220 }}>
+                                  <FormField label="Language">
+                                    <Dropdown
+                                      placeholder="Choose a language"
+                                      selectedId={typingCode ? 'other' : code || undefined}
+                                      options={[
+                                        ...Object.entries(LANGUAGE_NAMES).map(([id, value]) => ({
+                                          id,
+                                          value,
+                                          disabled: usedElsewhere.has(id),
+                                        })),
+                                        { id: 'other', value: 'Other (type a language code)' },
+                                      ]}
+                                      onSelect={(option) => {
+                                        if (option.id === 'other') {
+                                          setOtherLanguageRows((rows) => [...rows, index]);
+                                          updateTranslation(index, 'code', '');
+                                        } else {
+                                          setOtherLanguageRows((rows) => rows.filter((row) => row !== index));
+                                          updateTranslation(index, 'code', String(option.id));
+                                        }
+                                      }}
+                                      disabled={!isPro}
+                                      aria-label="Language"
+                                    />
+                                  </FormField>
+                                </Box>
+                                {typingCode && (
+                                  <Box style={{ width: 150 }}>
+                                    <FormField
+                                      label="Language code"
+                                      infoContent='The 2-letter code of the language, e.g. "sk" for Slovak. It must match the language your site shows visitors.'
+                                    >
+                                      <Input
+                                        value={code}
+                                        onChange={(event) => updateTranslation(index, 'code', toLanguageCode(event.target.value))}
+                                        placeholder="e.g. sk"
+                                        disabled={!isPro}
+                                        aria-label="Language code"
+                                      />
+                                    </FormField>
+                                  </Box>
+                                )}
+                                <Box style={{ paddingBottom: 8 }}>
+                                  <TextButton
+                                    size="small"
+                                    skin="destructive"
                                     disabled={!isPro}
-                                    aria-label="Language code"
+                                    onClick={() => removeTranslation(index)}
+                                  >
+                                    Remove language
+                                  </TextButton>
+                                </Box>
+                              </Box>
+                              {fields.map(({ key, label, placeholder }) => (
+                                <FormField key={key} label={`${label} (${name})`}>
+                                  <Input
+                                    value={translation[key]}
+                                    onChange={(event) => updateTranslation(index, key, event.target.value)}
+                                    placeholder={placeholder}
+                                    disabled={!isPro}
+                                    aria-label={`${label} (${name})`}
                                   />
                                 </FormField>
-                              </Box>
-                              <TextButton size="small" skin="destructive" disabled={!isPro} onClick={() => removeTranslation(index)}>
-                                Remove language
-                              </TextButton>
+                              ))}
                             </Box>
-                            <FormField label="Heading text">
-                              <Input
-                                value={translation.headingText}
-                                onChange={(event) => updateTranslation(index, 'headingText', event.target.value)}
-                                placeholder={settings.headingText || 'Uses the default heading text'}
-                                disabled={!isPro}
-                                aria-label="Heading text"
-                              />
-                            </FormField>
-                            <FormField label="Body text">
-                              <Input
-                                value={translation.bodyText}
-                                onChange={(event) => updateTranslation(index, 'bodyText', event.target.value)}
-                                placeholder={settings.bodyText || 'Uses the default body text'}
-                                disabled={!isPro}
-                                aria-label="Body text"
-                              />
-                            </FormField>
-                            <FormField label="Yes button text">
-                              <Input
-                                value={translation.yesButtonText}
-                                onChange={(event) => updateTranslation(index, 'yesButtonText', event.target.value)}
-                                placeholder={settings.yesButtonText || 'Uses the default Yes button text'}
-                                disabled={!isPro}
-                                aria-label="Yes button text"
-                              />
-                            </FormField>
-                            <FormField label="No button text">
-                              <Input
-                                value={translation.noButtonText}
-                                onChange={(event) => updateTranslation(index, 'noButtonText', event.target.value)}
-                                placeholder={settings.noButtonText || 'Uses the default No button text'}
-                                disabled={!isPro}
-                                aria-label="No button text"
-                              />
-                            </FormField>
-                            <FormField label="Footer text">
-                              <Input
-                                value={translation.footerText}
-                                onChange={(event) => updateTranslation(index, 'footerText', event.target.value)}
-                                placeholder={settings.footerText || 'Uses the default footer text'}
-                                disabled={!isPro}
-                                aria-label="Footer text"
-                              />
-                            </FormField>
-                          </Box>
-                        </Cell>
-                      ))}
+                          </Cell>
+                        );
+                      })}
                       <Cell span={12}>
                         <Button size="small" priority="secondary" disabled={!isPro} onClick={addTranslation}>
                           + Add language
@@ -883,6 +1028,8 @@ const DashboardPage: FC = () => {
                             onChange={(event) => update('customCss', event.target.value)}
                             placeholder={'.heading {\n  font-family: Georgia, serif;\n}'}
                             rows={4}
+                            maxLength={MAX_CUSTOM_CSS_LENGTH}
+                            hasCounter
                             disabled={!isPro}
                             aria-label="Custom CSS"
                           />
@@ -1045,22 +1192,40 @@ const DashboardPage: FC = () => {
                     <Card.Divider />
                     <Card.Content>
                       <Box direction="vertical" gap="SP2">
+                        <FormField label="Preview">
+                          <Dropdown
+                            selectedId={previewScreen}
+                            options={[
+                              { id: 'popup', value: 'Age question' },
+                              { id: 'restricted', value: 'After answering No' },
+                            ]}
+                            onSelect={(option) => setPreviewScreen(option.id as 'popup' | 'restricted')}
+                            aria-label="Preview screen"
+                          />
+                        </FormField>
                         {settings.translations.some((t) => t.code) && (
-                          <FormField label="Preview language">
+                          <FormField
+                            label="Preview as a visitor in"
+                            infoContent="See what visitors viewing your site in another language get, using the text you added under Other languages."
+                          >
                             <Dropdown
                               selectedId={previewLanguage || 'default'}
                               options={[
-                                { id: 'default', value: 'Default' },
+                                { id: 'default', value: 'Main language' },
                                 ...settings.translations
                                   .filter((t) => t.code)
-                                  .map((t) => ({ id: t.code, value: t.code })),
+                                  .map((t) => ({ id: t.code, value: languageName(t.code) })),
                               ]}
                               onSelect={(option) => setPreviewLanguage(option.id === 'default' ? '' : String(option.id))}
-                              aria-label="Preview language"
+                              aria-label="Preview as a visitor in"
                             />
                           </FormField>
                         )}
-                        <PopupPreview settings={resolveLocalizedSettings(settings, previewLanguage)} />
+                        <PopupPreview
+                          settings={resolveLocalizedSettings(settings, previewLanguage)}
+                          language={previewLanguage || siteLanguage}
+                          screen={previewScreen}
+                        />
                       </Box>
                     </Card.Content>
                   </Card>

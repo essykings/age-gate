@@ -10,13 +10,17 @@ export async function GET() {
     const instanceResponse = await elevatedGetAppInstance();
 
     // Only the fields the dashboard and editor panel need; not the site or owner details.
-    const { instance } = instanceResponse;
+    const { instance, site } = instanceResponse;
+    // The site's main language, so the dashboard previews the built-in popup wording
+    // visitors will actually see.
+    const primaryLanguage = site?.multilingual?.supportedLanguages?.find((language) => language.isPrimary)?.languageCode;
     const body = {
       instance: {
         instanceId: instance?.instanceId,
         isFree: instance?.isFree,
         billing: { packageName: instance?.billing?.packageName },
       },
+      siteLanguage: primaryLanguage || site?.locale || null,
     };
 
     return new Response(JSON.stringify(body), {
