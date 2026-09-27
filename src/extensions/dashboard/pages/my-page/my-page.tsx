@@ -229,6 +229,18 @@ const DashboardPage: FC = () => {
     update('translations', next);
   };
 
+  // Empties every text field of a language, so it goes back to the ready-made wording.
+  // Also used when a row switches language: text typed for the old language is no use for
+  // the new one, and leaving it would show visitors the wrong language.
+  const resetTranslationText = (index: number, code: string) => {
+    const next = [...settings.translations];
+    next[index] = { ...EMPTY_TRANSLATION, code };
+    update('translations', next);
+  };
+
+  const hasTypedText = (translation: Translation) =>
+    (Object.keys(EMPTY_TRANSLATION) as (keyof Translation)[]).some((key) => key !== 'code' && translation[key] !== '');
+
   const removeTranslation = (index: number) => {
     update('translations', settings.translations.filter((_, i) => i !== index));
     // Rows after the removed one move up by one.
@@ -909,10 +921,10 @@ const DashboardPage: FC = () => {
                                       onSelect={(option) => {
                                         if (option.id === 'other') {
                                           setOtherLanguageRows((rows) => [...rows, index]);
-                                          updateTranslation(index, 'code', '');
+                                          resetTranslationText(index, '');
                                         } else {
                                           setOtherLanguageRows((rows) => rows.filter((row) => row !== index));
-                                          updateTranslation(index, 'code', String(option.id));
+                                          if (String(option.id) !== code) resetTranslationText(index, String(option.id));
                                         }
                                       }}
                                       disabled={!isPro}
@@ -936,7 +948,16 @@ const DashboardPage: FC = () => {
                                     </FormField>
                                   </Box>
                                 )}
-                                <Box style={{ paddingBottom: 8 }}>
+                                <Box style={{ paddingBottom: 8 }} gap="SP3">
+                                  {hasTypedText(translation) && (
+                                    <TextButton
+                                      size="small"
+                                      disabled={!isPro}
+                                      onClick={() => resetTranslationText(index, code)}
+                                    >
+                                      Use ready-made wording
+                                    </TextButton>
+                                  )}
                                   <TextButton
                                     size="small"
                                     skin="destructive"
